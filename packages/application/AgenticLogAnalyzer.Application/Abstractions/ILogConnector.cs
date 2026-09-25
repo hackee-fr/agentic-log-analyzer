@@ -6,6 +6,6 @@ public interface ILogConnector
 {
     string Name { get; }
 
-    Task<IReadOnlyCollection<RawLog>> ReadAsync(
+    IAsyncEnumerable<RawLog> ReadAsync(
         CancellationToken cancellationToken);
 }
