@@ -13,6 +13,7 @@ The deterministic engine works without an LLM. The initial target is PostgreSQL 
 - `apps/api` — ASP.NET Core API
 - `apps/worker` — background ingestion/processing worker
 - `apps/dashboard` — web dashboard
+- `apps/desktop` — cross-platform desktop app (Photino) embedding the API and dashboard
 - `packages/domain` — domain model
 - `packages/application` — use cases and abstractions
 - `packages/infrastructure` — persistence and external infrastructure
@@ -21,6 +22,7 @@ The deterministic engine works without an LLM. The initial target is PostgreSQL 
 - `packages/correlation` — event correlation
 - `packages/agentic` — tools, skills, and agent orchestration
 - `packages/llm` — LLM provider implementations
+- `packages/hosting` — API services and routes shared by the web API and the desktop app
 - `tests` — unit, integration, and end-to-end tests
 - `knowledge` — source and protocol knowledge
 - `infrastructure` — Docker, PostgreSQL, and Hyper-V lab assets
@@ -66,6 +68,30 @@ To ingest a file in the background, set `Ingestion__FilePath` and run `dotnet ru
 
 Set `Storage__Provider=jsonl` to use the legacy JSON Lines repository, with `Storage__FilePath` selecting its file. SQLite is intended for local development; Docker Compose currently starts PostgreSQL for future use, and the application does not persist events to PostgreSQL yet. The investigation flow is deterministic and does not call an LLM.
 
+## Desktop app (Windows, macOS, Linux)
+
+`apps/desktop` packages the same API and dashboard as a native window ([Photino](https://www.tryphotino.io)): the API runs in-process on a random loopback port and the built dashboard is served from the same origin. The web setup above stays the development workflow.
+
+```sh
+make desktop                           # build the dashboard and open the desktop app
+make desktop-publish                   # standalone build for this machine (no .NET needed to run it)
+make desktop-publish RID=win-x64       # or osx-arm64, osx-x64, linux-x64
+```
+
+Output goes to `artifacts/desktop/<rid>/`; macOS targets produce `Agentic Log Analyzer.app`. Data is stored per user in `%LOCALAPPDATA%\AgenticLogAnalyzer` (Windows), `~/Library/Application Support/AgenticLogAnalyzer` (macOS) or `~/.local/share/AgenticLogAnalyzer` (Linux). The LLM is enabled by default and uses Ollama on `http://localhost:11434` (native install or the Docker service below); without it the assistant keeps its deterministic answers. The same `Storage__*` and `Llm__*` environment variables apply.
+
+`make desktop-package [RID=…] [VERSION=…]` also wraps the build in `artifacts/packages/`: a `.dmg` on macOS, a `.zip` plus an Inno Setup `-setup.exe` on Windows (when `iscc` is installed), and a `.tar.gz` plus an AppImage on Linux (when `appimagetool` is installed).
+
+Releases: the `Desktop packages` GitHub Actions workflow builds all four targets (`osx-arm64`, `osx-x64`, `win-x64`, `linux-x64`) on native runners. Pushing a tag publishes them as a GitHub Release:
+
+```sh
+git tag v0.3.0 && git push origin v0.3.0
+```
+
+Running the workflow manually (Actions › Desktop packages › Run workflow) only uploads the packages as build artifacts.
+
+Builds are not signed yet: macOS asks to confirm the first launch (right-click › Open), Windows SmartScreen may warn, and Linux needs WebKitGTK (`libwebkit2gtk-4.1`).
+
 ## Local LLM with Ollama (Docker)
 
 The dashboard Assistant (`POST /api/chat`) always computes its answer deterministically. When an LLM is enabled, Ollama only rephrases that answer; the rewording is rejected, and the deterministic answer shown instead, if it cites an IP address absent from the facts or denies a threat while a detection fired. Every answer keeps its evidence events.
@@ -93,6 +119,14 @@ OLLAMA_INTEGRATION_URL=http://localhost:11434 dotnet test --filter OllamaIntegra
 ```
 
 ## Build
+
+Run the same frontend and .NET checks as GitHub Actions with:
+
+```sh
+make verify
+```
+
+The CI workflow runs on pushes and pull requests targeting `main`; it also validates the local shell scripts and Docker Compose configuration.
 
 ```sh
 dotnet restore

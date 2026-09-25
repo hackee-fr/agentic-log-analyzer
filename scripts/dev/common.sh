@@ -29,3 +29,21 @@ free_port() {
     fi
   done
 }
+
+# .NET runtime identifier of this machine, e.g. osx-arm64, linux-x64, win-x64.
+detect_rid() {
+  local os arch
+  case "$(uname -s)" in
+    Darwin) os=osx ;;
+    Linux) os=linux ;;
+    MINGW*|MSYS*|CYGWIN*) os=win ;;
+    *) fail "Unsupported OS $(uname -s); set RID explicitly." ;;
+  esac
+  case "$(uname -m)" in
+    arm64|aarch64) arch=arm64 ;;
+    x86_64|amd64) arch=x64 ;;
+    *) fail "Unsupported CPU $(uname -m); set RID explicitly." ;;
+  esac
+  echo "$os-$arch"
+}
+

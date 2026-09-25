@@ -1,7 +1,7 @@
 # Local development commands. Run `make help` for the list.
 COMPOSE := docker compose -f infrastructure/docker/docker-compose.yml
 
-.PHONY: help start api front worker stop test
+.PHONY: help start api front desktop desktop-publish desktop-package worker stop test verify
 
 help: ## Show available commands
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  make %-8s %s\n", $$1, $$2}'
@@ -15,6 +15,15 @@ api: ## Start Ollama in Docker and the API on :5080 with the LLM enabled (LLM=of
 front: ## Build the dashboard and serve it on :5081
 	@./scripts/dev/front.sh
 
+desktop: ## Run the desktop app (native window, API included)
+	@./scripts/dev/desktop.sh
+
+desktop-publish: ## Build a standalone desktop app: make desktop-publish [RID=osx-arm64|osx-x64|win-x64|linux-x64]
+	@RID="$(RID)" ./scripts/dev/desktop-publish.sh
+
+desktop-package: ## Build the installer for RID (.dmg, setup.exe/.zip, AppImage/.tar.gz): make desktop-package [RID=…] [VERSION=…]
+	@RID="$(RID)" VERSION="$(VERSION)" ./scripts/dev/desktop-package.sh
+
 worker: ## Follow a log file: make worker FILE=path/to/app.log
 	@test -n "$(FILE)" || (echo "Usage: make worker FILE=path/to/app.log" && exit 1)
 	@Ingestion__FilePath="$(abspath $(FILE))" dotnet run --project apps/worker/AgenticLogAnalyzer.Worker
@@ -24,3 +33,10 @@ stop: ## Stop the Ollama container (models are kept)
 
 test: ## Run the .NET test suite
 	@dotnet test
+
+verify: ## Run the same frontend and .NET checks as CI
+	@cd apps/dashboard/AgenticLogAnalyzer.Dashboard/web && pnpm install --frozen-lockfile && pnpm lint && pnpm build
+	@dotnet restore AgenticLogAnalyzer.slnx
+	@dotnet format AgenticLogAnalyzer.slnx --verify-no-changes --no-restore
+	@dotnet build AgenticLogAnalyzer.slnx --configuration Release --no-restore
+	@dotnet test AgenticLogAnalyzer.slnx --configuration Release --no-build --no-restore
