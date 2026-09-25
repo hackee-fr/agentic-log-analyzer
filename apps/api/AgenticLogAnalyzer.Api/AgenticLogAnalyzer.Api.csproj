@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\packages\application\AgenticLogAnalyzer.Application\AgenticLogAnalyzer.Application.csproj" />
+    <ProjectReference Include="..\..\..\packages\infrastructure\AgenticLogAnalyzer.Infrastructure\AgenticLogAnalyzer.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\packages\detection\AgenticLogAnalyzer.Detection\AgenticLogAnalyzer.Detection.csproj" />
+    <ProjectReference Include="..\..\..\packages\correlation\AgenticLogAnalyzer.Correlation\AgenticLogAnalyzer.Correlation.csproj" />
+    <ProjectReference Include="..\..\..\packages\agentic\AgenticLogAnalyzer.Agentic\AgenticLogAnalyzer.Agentic.csproj" />
+    <ProjectReference Include="..\..\..\packages\llm\AgenticLogAnalyzer.Llm\AgenticLogAnalyzer.Llm.csproj" />
+  </ItemGroup>
+</Project>
