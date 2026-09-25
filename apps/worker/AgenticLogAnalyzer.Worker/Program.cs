@@ -13,13 +13,13 @@ var follow = builder.Configuration.GetValue("Ingestion:Follow", true);
 var pollInterval = TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Ingestion:PollIntervalMs", 1000));
 if (!string.IsNullOrWhiteSpace(inputPath))
 {
-    builder.Services.AddSingleton<ILogConnector>(_ => follow
-        ? new TailingFileConnector(inputPath, pollInterval)
-        : new FileConnector(inputPath));
+  builder.Services.AddSingleton<ILogConnector>(_ => follow
+      ? new TailingFileConnector(inputPath, pollInterval)
+      : new FileConnector(inputPath));
 }
 else if (useSample)
 {
-    builder.Services.AddSingleton<ILogConnector, SampleLogConnector>();
+  builder.Services.AddSingleton<ILogConnector, SampleLogConnector>();
 }
 var storageProvider = builder.Configuration["Storage:Provider"] ?? "sqlite";
 var sqlitePath = builder.Configuration["Storage:SqlitePath"]
@@ -29,9 +29,9 @@ var jsonLinesPath = builder.Configuration["Storage:FilePath"]
     ?? Path.Combine(Directory.GetCurrentDirectory(), "data", "events.jsonl");
 builder.Services.AddSingleton<IEventRepository>(_ => storageProvider.ToLowerInvariant() switch
 {
-    "sqlite" => new SqliteEventRepository(sqlitePath, legacyJsonLinesPaths),
-    "jsonl" => new JsonLinesEventRepository(jsonLinesPath),
-    _ => throw new InvalidOperationException($"Unsupported storage provider '{storageProvider}'. Use 'sqlite' or 'jsonl'.")
+  "sqlite" => new SqliteEventRepository(sqlitePath, legacyJsonLinesPaths),
+  "jsonl" => new JsonLinesEventRepository(jsonLinesPath),
+  _ => throw new InvalidOperationException($"Unsupported storage provider '{storageProvider}'. Use 'sqlite' or 'jsonl'.")
 });
 builder.Services.AddHostedService<Worker>();
 
