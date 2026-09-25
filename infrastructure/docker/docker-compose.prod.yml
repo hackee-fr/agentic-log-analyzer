@@ -1,0 +1,72 @@
+# Production-style stack: dashboard (nginx) → API → Ollama, with persistent volumes.
+# Only the dashboard is published; the API and Ollama stay on the internal network.
+#
+#   Published images:  docker compose -f infrastructure/docker/docker-compose.prod.yml up -d
+#   Build locally:     docker compose -f infrastructure/docker/docker-compose.prod.yml up -d --build
+#
+# Settings come from infrastructure/docker/.env (see .env.example).
+name: agentic-log-analyzer
+
+services:
+  dashboard:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hackee-fr}/agentic-log-analyzer-dashboard:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/dashboard.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${DASHBOARD_BIND:-127.0.0.1}:${DASHBOARD_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hackee-fr}/agentic-log-analyzer-api:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    restart: unless-stopped
+    environment:
+      Llm__Provider: ${LLM_PROVIDER:-ollama}
+      Llm__Ollama__BaseUrl: http://ollama:11434
+      Llm__Ollama__Model: ${OLLAMA_MODEL:-llama3.2}
+      Llm__Ollama__KeepAlive: ${OLLAMA_KEEP_ALIVE:-15m}
+    volumes:
+      - api_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  ollama:
+    image: ollama/ollama:${OLLAMA_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-15m}
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  ollama-pull:
+    image: ollama/ollama:${OLLAMA_IMAGE_TAG:-latest}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-llama3.2}"]
+    restart: "no"
+
+volumes:
+  api_data:
+  ollama_data:

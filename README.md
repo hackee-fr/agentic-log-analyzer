@@ -118,6 +118,22 @@ To run the opt-in integration tests against a running Ollama:
 OLLAMA_INTEGRATION_URL=http://localhost:11434 dotnet test --filter OllamaIntegrationTests
 ```
 
+## Container images and deployment
+
+`infrastructure/docker/api.Dockerfile` (chiseled ASP.NET runtime, non-root) and `dashboard.Dockerfile` (unprivileged nginx serving the build and proxying `/api` to the API) produce the web images. `docker-compose.prod.yml` runs the dashboard, API and Ollama with persistent volumes; only the dashboard is published, on `127.0.0.1:8080` by default (`DASHBOARD_BIND=0.0.0.0` exposes it on the network — there is no authentication yet).
+
+```sh
+make prod        # build the images locally and start the stack
+make prod-down   # stop it (data and models are kept)
+```
+
+The `Docker images` workflow audits NuGet and npm dependencies, builds both images and fails on fixable HIGH/CRITICAL vulnerabilities (Trivy). On `main` it pushes `ghcr.io/hackee-fr/agentic-log-analyzer-{api,dashboard}` as `:latest`, `:main` and `:sha-<commit>`; a `v*` tag adds `:<version>` and `:<major>.<minor>`. To run published images on a server:
+
+```sh
+IMAGE_TAG=0.3.0 docker compose -f infrastructure/docker/docker-compose.prod.yml pull
+IMAGE_TAG=0.3.0 docker compose -f infrastructure/docker/docker-compose.prod.yml up -d
+```
+
 ## Build
 
 Run the same frontend and .NET checks as GitHub Actions with:

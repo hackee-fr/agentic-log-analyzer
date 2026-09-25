@@ -1,0 +1,140 @@
+name: Docker images
+
+# Continuous delivery of the web stack (API + dashboard):
+# - pull requests: dependency audit, image build and vulnerability scan (nothing is pushed);
+# - main: images pushed to ghcr.io as :main, :sha-<commit> and :latest;
+# - v* tags: images pushed as :<version> and :<major>.<minor>.
+# Deploy with infrastructure/docker/docker-compose.prod.yml (IMAGE_TAG selects the version).
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/agentic-log-analyzer
+
+jobs:
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.29.3
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Audit NuGet packages
+        run: |
+          dotnet restore AgenticLogAnalyzer.slnx
+          dotnet list AgenticLogAnalyzer.slnx package --vulnerable --include-transitive | tee nuget-audit.txt
+          if grep -q "has the following vulnerable packages" nuget-audit.txt; then
+            echo "::error::Vulnerable NuGet packages found."
+            exit 1
+          fi
+
+      - name: Audit npm packages
+        working-directory: apps/dashboard/AgenticLogAnalyzer.Dashboard/web
+        run: pnpm audit --prod --audit-level high
+
+  images:
+    name: Image ${{ matrix.image }}
+    needs: dependencies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, dashboard]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build image for scanning (linux/amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker/${{ matrix.image }}.Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: scan/${{ matrix.image }}:${{ github.sha }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Scan image for vulnerabilities (fails on fixable HIGH/CRITICAL)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress \
+            "scan/${{ matrix.image }}:${{ github.sha }}"
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (linux/amd64, linux/arm64)
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/docker/${{ matrix.image }}.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

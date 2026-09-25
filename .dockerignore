@@ -1,0 +1,19 @@
+# Keep build contexts small and free of local data or secrets.
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+artifacts/
+data/
+**/data/
+.git/
+.github/
+.vs/
+.idea/
+.vscode/
+.playwright-mcp/
+**/*.sqlite3*
+**/*.jsonl
+**/.env
+**/.env.*
+!infrastructure/docker/.env.example
