@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\application\AgenticLogAnalyzer.Application\AgenticLogAnalyzer.Application.csproj" />
     <ProjectReference Include="..\..\domain\AgenticLogAnalyzer.Domain\AgenticLogAnalyzer.Domain.csproj" />
   </ItemGroup>

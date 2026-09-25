@@ -11,9 +11,18 @@ var inputPath = builder.Configuration["Ingestion:FilePath"];
 builder.Services.AddSingleton<ILogConnector>(_ => string.IsNullOrWhiteSpace(inputPath)
     ? new SampleLogConnector()
     : new FileConnector(inputPath));
-var dataFile = builder.Configuration["Storage:FilePath"]
+var storageProvider = builder.Configuration["Storage:Provider"] ?? "sqlite";
+var sqlitePath = builder.Configuration["Storage:SqlitePath"]
+    ?? DevelopmentStoragePaths.GetDatabasePath();
+var legacyJsonLinesPaths = DevelopmentStoragePaths.GetLegacyJsonLinesPaths();
+var jsonLinesPath = builder.Configuration["Storage:FilePath"]
     ?? Path.Combine(Directory.GetCurrentDirectory(), "data", "events.jsonl");
-builder.Services.AddSingleton<IEventRepository>(_ => new JsonLinesEventRepository(dataFile));
+builder.Services.AddSingleton<IEventRepository>(_ => storageProvider.ToLowerInvariant() switch
+{
+    "sqlite" => new SqliteEventRepository(sqlitePath, legacyJsonLinesPaths),
+    "jsonl" => new JsonLinesEventRepository(jsonLinesPath),
+    _ => throw new InvalidOperationException($"Unsupported storage provider '{storageProvider}'. Use 'sqlite' or 'jsonl'.")
+});
 builder.Services.AddHostedService<Worker>();
 
 var host = builder.Build();

@@ -47,13 +47,13 @@ In terminal 2, start the dashboard:
 dotnet run --project apps/dashboard/AgenticLogAnalyzer.Dashboard -- --urls http://localhost:5081
 ```
 
-Open `http://localhost:5081`. The dashboard imports `.log` and `.txt` files or pasted lines, searches events, and runs a deterministic investigation. Events are normalized and stored in `data/events.jsonl`; set `Storage__FilePath` to choose another location. The API exposes `GET /api/events?q=...`, `POST /api/ingest`, and `POST /api/investigations` (`{"query":"admin","maxEvents":500}`). Vite development mode (`pnpm dev`) is also available, but this checkout's `C#` directory name contains `#`, which breaks Vite's dependency optimizer; production builds and the ASP.NET dashboard host work normally.
+Open `http://localhost:5081`. The dashboard imports `.log` and `.txt` files or pasted lines, searches events, and runs a deterministic investigation. By default, API and worker persist normalized events to the shared SQLite database `data/events.sqlite3` in the repository root. The database is created at first use; if it is empty, existing JSON Lines event files are imported without deleting the originals. Set `Storage__SqlitePath` to move it; use the same path for both processes. The API exposes `GET /api/events?q=...`, `POST /api/ingest`, and `POST /api/investigations` (`{"query":"admin","maxEvents":500}`). Vite development mode (`pnpm dev`) is also available, but this checkout's `C#` directory name contains `#`, which breaks Vite's dependency optimizer; production builds and the ASP.NET dashboard host work normally.
 
 The investigation orchestrator runs Investigation, Detection, Correlation, and Reporting agents in sequence. The first detection rule flags at least three failed authentication events for one user and source IP within ten minutes. Correlations group events by user, source IP, or device. Reports include evidence event IDs; no LLM is called, and Ollama remains unimplemented.
 
-To ingest a file in the background, set `Ingestion__FilePath` and run `dotnet run --project apps/worker/AgenticLogAnalyzer.Worker`. With no file configured the worker reads its small built-in sample. API and worker use the same `Storage__FilePath` setting and default path when launched from the repository root.
+To ingest a file in the background, set `Ingestion__FilePath` and run `dotnet run --project apps/worker/AgenticLogAnalyzer.Worker`. With no file configured the worker reads its small built-in sample. API and worker use the same `Storage__SqlitePath` setting and default database when launched from the repository root. SQLite uses WAL mode so the API and worker can access the development database concurrently.
 
-The storage implementation is a local JSON Lines repository intended for a single-machine development deployment. Docker Compose currently starts PostgreSQL for future use; the application does not persist events to PostgreSQL yet. The investigation flow is deterministic and does not call an LLM.
+Set `Storage__Provider=jsonl` to use the legacy JSON Lines repository, with `Storage__FilePath` selecting its file. SQLite is intended for local development; Docker Compose currently starts PostgreSQL for future use, and the application does not persist events to PostgreSQL yet. The investigation flow is deterministic and does not call an LLM.
 
 ## Build
 
