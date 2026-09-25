@@ -9,9 +9,11 @@ WORKDIR /src
 COPY global.json Directory.Build.props Directory.Packages.props ./
 COPY packages/ packages/
 COPY apps/api/ apps/api/
-RUN dotnet restore apps/api/AgenticLogAnalyzer.Api/AgenticLogAnalyzer.Api.csproj -a "$TARGETARCH"
+# NuGet vulnerability auditing runs in its own CI job; inside the image build a failed audit lookup would
+# become an error through TreatWarningsAsErrors, so it is disabled here.
+RUN dotnet restore apps/api/AgenticLogAnalyzer.Api/AgenticLogAnalyzer.Api.csproj -a "$TARGETARCH" -p:NuGetAudit=false -v normal
 RUN dotnet publish apps/api/AgenticLogAnalyzer.Api/AgenticLogAnalyzer.Api.csproj \
-      -c Release -a "$TARGETARCH" --no-restore -p:Version="$VERSION" -p:DebugType=none -o /app \
+      -c Release -a "$TARGETARCH" --no-restore -p:NuGetAudit=false -p:Version="$VERSION" -p:DebugType=none -o /app \
  && mkdir -p /data && chown 1654:1654 /data
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime
