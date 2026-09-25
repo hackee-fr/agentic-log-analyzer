@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\packages\application\AgenticLogAnalyzer.Application\AgenticLogAnalyzer.Application.csproj" />
     <ProjectReference Include="..\..\..\packages\connectors\AgenticLogAnalyzer.Connectors\AgenticLogAnalyzer.Connectors.csproj" />
     <ProjectReference Include="..\..\..\packages\detection\AgenticLogAnalyzer.Detection\AgenticLogAnalyzer.Detection.csproj" />
