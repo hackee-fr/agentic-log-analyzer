@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\application\AgenticLogAnalyzer.Application\AgenticLogAnalyzer.Application.csproj" />
+  </ItemGroup>
+</Project>
