@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using AgenticLogAnalyzer.Application.Abstractions;
 using AgenticLogAnalyzer.Domain.Logs;
 
@@ -7,21 +8,23 @@ public sealed class SampleLogConnector : ILogConnector
 {
     public string Name => "sample";
 
-    public Task<IReadOnlyCollection<RawLog>> ReadAsync(
-        CancellationToken cancellationToken)
+    public async IAsyncEnumerable<RawLog> ReadAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        IReadOnlyCollection<RawLog> logs =
-        [
-            new RawLog(
-                Name,
-                "2026-09-25T08:42:01Z|authentication|login|failure|john.doe|reader-01|192.168.1.50",
-                DateTimeOffset.UtcNow),
-            new RawLog(
-                Name,
-                "2026-09-25T08:43:12Z|authentication|login|success|john.doe|reader-01|192.168.1.50",
-                DateTimeOffset.UtcNow)
-        ];
+        var receivedAt = DateTimeOffset.UtcNow;
 
-        return Task.FromResult(logs);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        yield return new RawLog(
+            Name,
+            "2026-09-25T08:42:01Z|authentication|login|failure|john.doe|reader-01|192.168.1.50",
+            receivedAt);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        yield return new RawLog(
+            Name,
+            "2026-09-25T08:43:12Z|authentication|login|success|john.doe|reader-01|192.168.1.50",
+            receivedAt);
     }
 }
