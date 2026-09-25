@@ -1,27 +1,33 @@
+using System.Runtime.CompilerServices;
 using AgenticLogAnalyzer.Application.Abstractions;
 using AgenticLogAnalyzer.Domain.Logs;
 
 namespace AgenticLogAnalyzer.Connectors;
 
-public sealed class FileConnector : ILogConnector
+public sealed class FileConnector(string path) : ILogConnector
 {
-    private readonly string _path;
-
-    public FileConnector(string path)
-    {
-        _path = path;
-    }
+    private readonly string _path = path;
 
     public string Name => "file";
 
-    public async Task<IReadOnlyCollection<RawLog>> ReadAsync(
-        CancellationToken cancellationToken)
+    public async IAsyncEnumerable<RawLog> ReadAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var lines = await File.ReadAllLinesAsync(_path, cancellationToken);
+        var receivedAt = DateTimeOffset.UtcNow;
 
-        return lines
-            .Where(line => !string.IsNullOrWhiteSpace(line))
-            .Select(line => new RawLog(Name, line, DateTimeOffset.UtcNow))
-            .ToArray();
+        await foreach (var line in File.ReadLinesAsync(
+            _path,
+            cancellationToken))
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            yield return new RawLog(
+                Name,
+                line,
+                receivedAt);
+        }
     }
 }
