@@ -88,36 +88,31 @@ jobs:
           echo "value=$version" >> "$GITHUB_OUTPUT"
           echo "Packaging version $version"
 
-      - name: Install Inno Setup (Windows installer)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
-            choco install innosetup --no-progress -y
-          }
-
-      - name: Install AppImage tooling (Linux)
+      - name: Install icon tooling (Linux AppImage)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends librsvg2-bin desktop-file-utils
-          curl -fsSL -o /usr/local/bin/appimagetool \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x /usr/local/bin/appimagetool
+          sudo apt-get install -y --no-install-recommends librsvg2-bin
 
-      - name: Build and package
+      - name: Build and package with Velopack
         env:
           RID: ${{ matrix.rid }}
           VERSION: ${{ steps.version.outputs.value }}
-          # Runners have no FUSE: run appimagetool without mounting itself.
-          APPIMAGE_EXTRACT_AND_RUN: "1"
+          # Releases download the previous version so that installed apps can apply small delta updates.
+          PREVIOUS_RELEASES: ${{ (github.ref_type == 'tag' || inputs.publish-release) && 'github' || '' }}
         run: ./scripts/dev/desktop-package.sh
+
+      - name: Keep only this version's packages
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        # vpk download adds the previous release's packages to the output folder; they are already published.
+        run: find artifacts/packages -name '*.nupkg' ! -name "*-${VERSION}-*" -print -delete
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.rid }}
-          path: artifacts/packages/*
+          path: artifacts/packages/${{ matrix.rid }}/*
           if-no-files-found: error
 
   release:
@@ -141,10 +136,11 @@ jobs:
           {
             echo "## Install"
             echo
-            echo "The builds are not code-signed yet:"
-            echo "- **macOS**: open the \`.dmg\`, drag the app to Applications, then right-click › Open on first launch."
-            echo "- **Windows**: run the \`-setup.exe\` (per-user install, no admin rights); SmartScreen may ask for confirmation."
-            echo "- **Linux**: \`chmod +x\` the \`.AppImage\` and run it; requires WebKitGTK (\`libwebkit2gtk-4.1\`)."
+            echo "Install once; the app then updates itself from this repository's releases. The builds are not code-signed yet:"
+            echo "- **Windows**: run \`AgenticLogAnalyzer-win-x64-Setup.exe\` (per-user install, no admin rights); SmartScreen may ask for confirmation."
+            echo "- **macOS**: run \`AgenticLogAnalyzer-osx-arm64-Setup.pkg\` (Apple Silicon) or \`-osx-x64-Setup.pkg\` (Intel); if macOS blocks it, right-click › Open."
+            echo "- **Linux**: \`chmod +x AgenticLogAnalyzer-linux-x64.AppImage\` and run it; requires WebKitGTK (\`libwebkit2gtk-4.1\`)."
+            echo "- Portable \`.zip\` builds are also attached."
             echo
             echo "The assistant uses Ollama on http://localhost:11434 when it is running."
             echo "Docker images: \`ghcr.io/${GITHUB_REPOSITORY_OWNER}/agentic-log-analyzer-{api,dashboard}:${version}\`."

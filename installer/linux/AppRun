@@ -1,4 +1,0 @@
-#!/bin/sh
-# AppImage entry point: runs the self-contained desktop build shipped in usr/bin.
-HERE="$(dirname "$(readlink -f "$0")")"
-exec "$HERE/usr/bin/AgenticLogAnalyzer" "$@"

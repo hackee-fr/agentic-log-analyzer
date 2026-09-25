@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Photino.NET" />
+    <PackageReference Include="Velopack" />
   </ItemGroup>
 
   <ItemGroup>

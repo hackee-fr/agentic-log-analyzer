@@ -143,3 +143,34 @@ export type LlmStatus = {
 export function getLlmStatus() {
   return request<{ enabled: boolean; status: LlmStatus | null }>("/api/llm/status")
 }
+
+export type AppUpdateStatus = {
+  installed: boolean
+  currentVersion: string | null
+  availableVersion: string | null
+  state: "disabled" | "idle" | "checking" | "up-to-date" | "downloading" | "ready" | "error"
+  progress: number
+  error: string | null
+  lastChecked: string | null
+}
+
+/** Desktop auto-update status; null in the web dashboard, where the route does not exist. */
+export async function getAppUpdate(): Promise<AppUpdateStatus | null> {
+  const response = await fetch(`${apiBase}/api/app/update`)
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`API error ${response.status}`)
+  return response.json() as Promise<AppUpdateStatus>
+}
+
+export function checkAppUpdate() {
+  return request<AppUpdateStatus>("/api/app/update/check", { method: "POST" })
+}
+
+/** Installs the downloaded update; the desktop app exits and relaunches on the new version. */
+export async function applyAppUpdate() {
+  const response = await fetch(`${apiBase}/api/app/update/apply`, { method: "POST" })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new Error(body?.error ?? `API error ${response.status}`)
+  }
+}

@@ -11,7 +11,8 @@ import {
   TriangleAlert,
 } from "lucide-react"
 import { toast } from "sonner"
-import { apiBase, getApiSettings, getLlmStatus, type ApiSettings, type LlmStatus } from "@/lib/api"
+import { apiBase, getApiSettings, getLlmStatus, type ApiSettings, type AppUpdateStatus, type LlmStatus } from "@/lib/api"
+import { AppUpdateSettings } from "@/components/app-update"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,9 +27,11 @@ type SettingsViewProps = {
   apiConnected: boolean
   eventCount: number
   detectionCount: number
+  appUpdate?: AppUpdateStatus | null
+  onAppUpdateChange?: (status: AppUpdateStatus) => void
 }
 
-export function SettingsView({ apiConnected, eventCount, detectionCount }: SettingsViewProps) {
+export function SettingsView({ apiConnected, eventCount, detectionCount, appUpdate = null, onAppUpdateChange = () => {} }: SettingsViewProps) {
   const [settings, setSettings] = useState<ApiSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -107,6 +110,7 @@ export function SettingsView({ apiConnected, eventCount, detectionCount }: Setti
         >
           <SettingRow label="Endpoint" value={apiBase || window.location.origin} />
           <SettingRow label="Environment" value={loading ? "Loading…" : settings?.environment ?? "Unavailable"} />
+          <AppUpdateSettings status={appUpdate} onChange={onAppUpdateChange} />
         </StatusCard>
 
         <StatusCard

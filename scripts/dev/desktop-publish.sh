@@ -47,8 +47,7 @@ if [[ "$RID" == osx-* ]]; then
 </dict>
 </plist>
 PLIST
-  rm -rf "$OUT/bin"
-  info "Done: $BUNDLE"
+  info "Done: $BUNDLE (the self-contained build stays in $OUT/bin for packaging)"
   warn "The app is not signed: on first launch, right-click it and choose Open (or run: xattr -dr com.apple.quarantine \"$BUNDLE\")."
 else
   info "Done: $OUT/bin (run AgenticLogAnalyzer$([[ "$RID" == win-* ]] && echo .exe))"

@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Agentic Log Analyzer
-Comment=Evidence-led log investigations and deterministic detections
-Exec=AgenticLogAnalyzer
-Icon=agentic-log-analyzer
-Categories=Utility;System;
-Terminal=false

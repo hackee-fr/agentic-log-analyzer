@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.FileProviders;
 using Photino.NET;
+using Velopack;
 
 namespace AgenticLogAnalyzer.Desktop;
 
@@ -16,6 +17,9 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Must run first: handles Velopack install/update/uninstall hooks, which may exit the process.
+        VelopackApp.Build().Run();
+
         var dataDirectory = DesktopPaths.GetDataDirectory();
         var webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 
@@ -35,12 +39,37 @@ internal static class Program
             Path.Combine(dataDirectory, "events.jsonl"),
             defaultLlmProvider: "ollama");
         builder.Services.AddLogAnalyzer(options);
+        builder.Services.AddSingleton<DesktopUpdater>();
+        builder.Services.AddHostedService<DesktopUpdateWorker>();
 
         var app = builder.Build();
 
         // The dashboard is served from the same origin as the API, so it calls relative URLs.
         app.MapGet("/app-config.js", () => Results.Text("window.__APP_CONFIG__ = { apiBase: \"\" };", "text/javascript"));
         app.MapLogAnalyzerApi();
+
+        // Desktop-only routes: the web dashboard hides the update UI when they return 404.
+        app.MapGet("/api/app/update", (DesktopUpdater updater) => Results.Ok(updater.GetStatus()));
+        app.MapPost("/api/app/update/check", async (DesktopUpdater updater, CancellationToken token) =>
+        {
+            await updater.CheckAndDownloadAsync(token);
+            return Results.Ok(updater.GetStatus());
+        });
+        app.MapPost("/api/app/update/apply", (DesktopUpdater updater) =>
+        {
+            if (updater.GetStatus().State != "ready")
+            {
+                return Results.Conflict(new { error = "No downloaded update is ready to install." });
+            }
+
+            // Let the response reach the dashboard before the process exits to install and relaunch.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500));
+                updater.ApplyAndRestart();
+            });
+            return Results.Accepted();
+        });
 
         if (Directory.Exists(webRoot))
         {
@@ -70,6 +99,7 @@ internal static class Program
             .Load(new Uri(address));
 
         window.WaitForClose();
+        app.Services.GetRequiredService<DesktopUpdater>().ApplyOnExit();
         app.StopAsync().GetAwaiter().GetResult();
     }
 }

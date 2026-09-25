@@ -6,6 +6,14 @@ Desktop installers and Docker images are published from `v*` tags (see the READM
 
 ## [Unreleased]
 
+### Added
+
+- **Desktop auto-update** (Velopack): installed apps check GitHub Releases at startup and every six hours, download new versions in the background, and install them on "Restart now" or when the app closes. Delta packages keep updates small. Settings shows the installed version and has a manual check.
+
+### Changed
+
+- Desktop installers are built with Velopack: `-Setup.exe` (Windows), `-Setup.pkg` (macOS), `.AppImage` (Linux) and portable `.zip` files, plus the update feed. They replace the Inno Setup installer, the `.dmg` and the `.tar.gz`. Apps installed from 0.3.0 must be reinstalled once to receive updates.
+
 ## [0.3.0] - 2026-09-25
 
 ### Added

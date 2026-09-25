@@ -21,7 +21,7 @@ desktop: ## Run the desktop app (native window, API included)
 desktop-publish: ## Build a standalone desktop app: make desktop-publish [RID=osx-arm64|osx-x64|win-x64|linux-x64]
 	@RID="$(RID)" ./scripts/dev/desktop-publish.sh
 
-desktop-package: ## Build the installer for RID (.dmg, setup.exe/.zip, AppImage/.tar.gz): make desktop-package [RID=…] [VERSION=…]
+desktop-package: ## Build the Velopack installer and update feed for RID: make desktop-package [RID=…] [VERSION=…]
 	@RID="$(RID)" VERSION="$(VERSION)" ./scripts/dev/desktop-package.sh
 
 worker: ## Follow a log file: make worker FILE=path/to/app.log

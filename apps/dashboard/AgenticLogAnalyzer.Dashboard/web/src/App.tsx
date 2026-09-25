@@ -75,6 +75,8 @@ import { EventDetailDialog } from "@/components/event-detail-dialog"
 import { buildActivity, describeStep, type ActivityBucket } from "@/lib/activity"
 import { LogChat } from "@/components/log-chat"
 import { SettingsView } from "@/components/settings-view"
+import { AppUpdateBanner } from "@/components/app-update"
+import { useAppUpdate } from "@/hooks/use-app-update"
 import {
   Table,
   TableBody,
@@ -173,6 +175,7 @@ function App() {
   const [query, setQuery] = useState("")
   const [resultFilter, setResultFilter] = useState<ResultFilter>("all")
   const [selectedEvent, setSelectedEvent] = useState<CanonicalEvent | null>(null)
+  const appUpdate = useAppUpdate()
   const searchInput = useRef<HTMLInputElement>(null)
   const mobileSearchInput = useRef<HTMLInputElement>(null)
   const mobileNav = useRef<HTMLElement>(null)
@@ -593,6 +596,8 @@ function App() {
             </div>
           </div>
 
+          <AppUpdateBanner status={appUpdate.status} />
+
           {!connected && !loading && (
             <div className="mb-6 flex items-center gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
               <AlertTriangle className="size-4 shrink-0" />
@@ -636,7 +641,7 @@ function App() {
                 />
               )}
               {activeView === "sources" && <SourcesView sources={sources} loading={loading} onDelete={removeEvents} onShowSource={(name) => showEvents("all", name)} onImport={() => setImportOpen(true)} />}
-              {activeView === "settings" && <SettingsView apiConnected={connected} eventCount={events.length} detectionCount={detectionCount} />}
+              {activeView === "settings" && <SettingsView apiConnected={connected} eventCount={events.length} detectionCount={detectionCount} appUpdate={appUpdate.status} onAppUpdateChange={appUpdate.setStatus} />}
             </div>
           )}
 
