@@ -117,4 +117,33 @@ public sealed class CanonicalEventParserTests
         Assert.Equal("Query execution failed", result.Action);
         Assert.Equal("failure", result.Result);
     }
+
+    [Fact]
+    public void Parse_SameLineAndSource_ReturnsSameId()
+    {
+        var first = _parser.Parse(CreateRawLog(ValidLine));
+        var second = _parser.Parse(CreateRawLog(ValidLine) with { ReceivedAt = DateTimeOffset.UnixEpoch });
+
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(8, first.Id.Version);
+    }
+
+    [Fact]
+    public void Parse_SameLineFromAnotherSource_ReturnsDifferentId()
+    {
+        var first = _parser.Parse(CreateRawLog(ValidLine));
+        var second = _parser.Parse(CreateRawLog(ValidLine) with { SourceName = "other-source" });
+
+        Assert.NotEqual(first.Id, second.Id);
+    }
+
+    [Fact]
+    public void Parse_LaterTimestamp_ReturnsGreaterIdInBigEndianOrder()
+    {
+        var earlier = _parser.Parse(CreateRawLog("2026-09-25T08:42:01Z|system|boot| | | |"));
+        var later = _parser.Parse(CreateRawLog("2026-09-25T08:42:02Z|system|boot| | | |"));
+
+        Assert.True(earlier.Id.ToByteArray(bigEndian: true).AsSpan()
+            .SequenceCompareTo(later.Id.ToByteArray(bigEndian: true)) < 0);
+    }
 }

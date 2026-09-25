@@ -41,7 +41,7 @@ public sealed partial class CanonicalEventParser : ILogParser
         }
 
         return new CanonicalEvent(
-            Guid.CreateVersion7(timestamp),
+            CanonicalEventId.Create(rawLog, timestamp),
             timestamp,
             rawLog.Source,
             rawLog.SourceName,
@@ -84,7 +84,7 @@ public sealed partial class CanonicalEventParser : ILogParser
         var sourceIp = IPAddress.TryParse(source, out _) ? source : null;
 
         return new CanonicalEvent(
-            Guid.CreateVersion7(timestamp),
+            CanonicalEventId.Create(rawLog, timestamp),
             timestamp,
             rawLog.Source,
             rawLog.SourceName,

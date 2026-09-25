@@ -59,7 +59,13 @@ public sealed class JsonLinesEventRepository(string path) : IEventRepository, ID
                 }
             }
 
-            return events.OrderByDescending(item => item.Timestamp).ToArray();
+            // Appends are not deduplicated; re-ingested lines share a deterministic ID, so keep the latest copy.
+            return events
+                .AsEnumerable()
+                .Reverse()
+                .DistinctBy(item => item.Id)
+                .OrderByDescending(item => item.Timestamp)
+                .ToArray();
         }
         finally
         {
