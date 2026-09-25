@@ -8,9 +8,19 @@ var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddSingleton<ILogParser, CanonicalEventParser>();
 var inputPath = builder.Configuration["Ingestion:FilePath"];
-builder.Services.AddSingleton<ILogConnector>(_ => string.IsNullOrWhiteSpace(inputPath)
-    ? new SampleLogConnector()
-    : new FileConnector(inputPath));
+var useSample = builder.Configuration.GetValue("Ingestion:UseSample", false);
+var follow = builder.Configuration.GetValue("Ingestion:Follow", true);
+var pollInterval = TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Ingestion:PollIntervalMs", 1000));
+if (!string.IsNullOrWhiteSpace(inputPath))
+{
+    builder.Services.AddSingleton<ILogConnector>(_ => follow
+        ? new TailingFileConnector(inputPath, pollInterval)
+        : new FileConnector(inputPath));
+}
+else if (useSample)
+{
+    builder.Services.AddSingleton<ILogConnector, SampleLogConnector>();
+}
 var storageProvider = builder.Configuration["Storage:Provider"] ?? "sqlite";
 var sqlitePath = builder.Configuration["Storage:SqlitePath"]
     ?? DevelopmentStoragePaths.GetDatabasePath();

@@ -5,7 +5,7 @@ namespace AgenticLogAnalyzer.Worker;
 
 public sealed partial class Worker(
     ILogger<Worker> logger,
-    ILogConnector connector,
+    IEnumerable<ILogConnector> connectors,
     ILogParser parser,
     IEventRepository repository) : BackgroundService
 {
@@ -14,11 +14,18 @@ public sealed partial class Worker(
     {
         LogWorkerStarted(logger);
 
+        var connector = connectors.FirstOrDefault();
+        if (connector is null)
+        {
+            LogNoInputConfigured(logger);
+            return;
+        }
+
         await foreach (var rawLog in connector.ReadAsync(stoppingToken))
         {
             if (!parser.CanParse(rawLog))
             {
-                LogUnparseableLine(logger, rawLog.SourceName, "unexpected field count");
+                LogUnparseableLine(logger, rawLog.SourceName, "unsupported log format");
                 continue;
             }
 
@@ -50,6 +57,13 @@ public sealed partial class Worker(
         Level = LogLevel.Information,
         Message = "Agentic Log Analyzer worker started.")]
     private static partial void LogWorkerStarted(
+        ILogger logger);
+
+    [LoggerMessage(
+        EventId = 1003,
+        Level = LogLevel.Warning,
+        Message = "No input configured. Set Ingestion__FilePath to a log file, or Ingestion__UseSample=true for demo lines.")]
+    private static partial void LogNoInputConfigured(
         ILogger logger);
 
     [LoggerMessage(
