@@ -146,6 +146,8 @@ public sealed class LogChatServiceTests
     {
         public Task SaveAsync(CanonicalEvent canonicalEvent, CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public Task<int> DeleteAsync(string? sourceName, CancellationToken cancellationToken) => Task.FromResult(0);
+
         public Task<IReadOnlyCollection<CanonicalEvent>> SearchAsync(string query, CancellationToken cancellationToken) =>
             Task.FromResult(events);
     }

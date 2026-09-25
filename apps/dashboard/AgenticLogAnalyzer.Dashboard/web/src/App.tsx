@@ -19,9 +19,11 @@ import {
   RefreshCw,
   Search,
   Server,
+  Settings2,
   Shield,
   ShieldAlert,
   Sparkles,
+  Trash2,
   Upload,
   UserRound,
   X,
@@ -39,6 +41,7 @@ import {
 } from "recharts"
 import { toast } from "sonner"
 import {
+  deleteEvents,
   getEvents,
   ingestLogs,
   runInvestigation,
@@ -66,6 +69,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { LogChat } from "@/components/log-chat"
+import { SettingsView } from "@/components/settings-view"
 import {
   Table,
   TableBody,
@@ -75,7 +79,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-type View = "overview" | "assistant" | "investigations" | "events" | "sources"
+type View = "overview" | "assistant" | "investigations" | "events" | "sources" | "settings"
 
 const navigation: { id: View; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Overview", icon: Layers3 },
@@ -83,6 +87,7 @@ const navigation: { id: View; label: string; icon: typeof Activity }[] = [
   { id: "investigations", label: "Investigations", icon: ShieldAlert },
   { id: "events", label: "Events", icon: FileSearch },
   { id: "sources", label: "Sources", icon: Database },
+  { id: "settings", label: "Settings", icon: Settings2 },
 ]
 
 const formatTimestamp = (value: string) =>
@@ -307,12 +312,27 @@ function App() {
     }
   }
 
+  const removeEvents = async (target: string | null) => {
+    try {
+      const result = await deleteEvents(target)
+      await refresh()
+      toast.success(`${result.deleted} event(s) deleted`, {
+        description: target === null ? "All stored events were removed." : `Source: ${target}`,
+      })
+    } catch (error) {
+      toast.error("Deletion failed", {
+        description: error instanceof Error ? error.message : "Check that the API is running.",
+      })
+    }
+  }
+
   const viewTitle = {
     overview: "Overview",
     assistant: "Log assistant",
     investigations: "Investigations",
     events: "Events",
     sources: "Log sources",
+    settings: "Settings",
   }[activeView]
 
   return (
@@ -439,6 +459,7 @@ function App() {
                 {activeView === "investigations" && "Evidence-led analysis from your deterministic agent pipeline."}
                 {activeView === "events" && "Search and review normalized security events."}
                 {activeView === "sources" && "Connected log sources and their latest activity."}
+                {activeView === "settings" && "Runtime status, storage and analysis configuration."}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -516,11 +537,12 @@ function App() {
           <div className={activeView === "assistant" ? undefined : "hidden"}><LogChat /></div>
           {activeView === "investigations" && <InvestigationView report={report} loading={loading || investigating} />}
           {activeView === "events" && <EventsView events={visibleEvents} loading={loading} query={query} />}
-          {activeView === "sources" && <SourcesView sources={sources} loading={loading} />}
+          {activeView === "sources" && <SourcesView sources={sources} loading={loading} onDelete={removeEvents} />}
+          {activeView === "settings" && <SettingsView apiConnected={connected} eventCount={events.length} detectionCount={detectionCount} />}
 
           <footer className="mt-10 flex flex-col justify-between gap-2 border-t border-slate-200 pt-5 text-[11px] text-slate-400 sm:flex-row">
             <span>Agentic Log Analyzer <span className="mx-1.5">·</span> Deterministic engine</span>
-            <span className="flex items-center gap-2"><span className={`size-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-rose-500"}`} />{connected ? "All systems operational" : "API connection required"}<span className="mx-1.5">·</span>Local JSONL storage</span>
+            <span className="flex items-center gap-2"><span className={`size-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-rose-500"}`} />{connected ? "All systems operational" : "API connection required"}<span className="mx-1.5">·</span>Local persistent storage</span>
           </footer>
         </main>
       </div>
@@ -869,10 +891,67 @@ function EventsView({ events, loading, query }: { events: CanonicalEvent[]; load
   )
 }
 
-function SourcesView({ sources, loading }: { sources: { name: string; events: number; types: Set<string>; latest: string }[]; loading: boolean }) {
+function SourcesView({
+  sources,
+  loading,
+  onDelete,
+}: {
+  sources: { name: string; events: number; types: Set<string>; latest: string }[]
+  loading: boolean
+  onDelete: (source: string | null) => Promise<void>
+}) {
+  // undefined: dialog closed, null: delete everything, string: delete one source.
+  const [target, setTarget] = useState<string | null | undefined>(undefined)
+  const [deleting, setDeleting] = useState(false)
+
   if (loading) return <ChartEmpty loading message="Loading sources…" />
   if (!sources.length) return <EmptyPanel icon={Database} title="No log sources yet" detail="Import a log file to register its source." />
-  return <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sources.map((source) => <Card key={source.name} className="rounded-xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.03)]"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Server className="size-5" /></div><Badge variant="outline" className="border-blue-200 bg-blue-50 text-[9px] text-blue-700">IMPORTED</Badge></div><h3 className="mt-4 truncate text-sm font-semibold text-slate-800">{source.name}</h3><p className="mt-1 text-[10px] text-slate-400">{[...source.types].join(", ")} connector</p><Separator className="my-4" /><div className="flex justify-between"><div><div className="text-[9px] tracking-wide text-slate-400 uppercase">Events</div><div className="mt-1 text-lg font-semibold text-slate-800">{source.events.toLocaleString("en-US")}</div></div><div className="text-right"><div className="text-[9px] tracking-wide text-slate-400 uppercase">Last event</div><div className="mt-2 text-[10px] text-slate-600">{formatTimestamp(source.latest)}</div></div></div></CardContent></Card>)}</div>
+
+  const total = sources.reduce((sum, source) => sum + source.events, 0)
+  const pending = target === undefined ? 0 : target === null ? total : sources.find((source) => source.name === target)?.events ?? 0
+
+  const confirm = async () => {
+    if (target === undefined) return
+    setDeleting(true)
+    try {
+      await onDelete(target)
+      setTarget(undefined)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={() => setTarget(null)} className="h-9 gap-2 border-rose-200 bg-white text-xs text-rose-700 shadow-sm hover:bg-rose-50 hover:text-rose-800">
+          <Trash2 className="size-3.5" /> Delete all data
+        </Button>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sources.map((source) => <Card key={source.name} className="rounded-xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.03)]"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Server className="size-5" /></div><div className="flex items-center gap-1.5"><Badge variant="outline" className="border-blue-200 bg-blue-50 text-[9px] text-blue-700">IMPORTED</Badge><button type="button" aria-label={`Delete events from ${source.name}`} title="Delete this source's events" onClick={() => setTarget(source.name)} className="grid size-7 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"><Trash2 className="size-3.5" /></button></div></div><h3 className="mt-4 truncate text-sm font-semibold text-slate-800" title={source.name}>{source.name}</h3><p className="mt-1 text-[10px] text-slate-400">{[...source.types].join(", ")} connector</p><Separator className="my-4" /><div className="flex justify-between"><div><div className="text-[9px] tracking-wide text-slate-400 uppercase">Events</div><div className="mt-1 text-lg font-semibold text-slate-800">{source.events.toLocaleString("en-US")}</div></div><div className="text-right"><div className="text-[9px] tracking-wide text-slate-400 uppercase">Last event</div><div className="mt-2 text-[10px] text-slate-600">{formatTimestamp(source.latest)}</div></div></div></CardContent></Card>)}</div>
+
+      <Dialog open={target !== undefined} onOpenChange={(open) => { if (!open && !deleting) setTarget(undefined) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{target === null ? "Delete all data?" : "Delete this source?"}</DialogTitle>
+            <DialogDescription>
+              {target === null
+                ? `All ${pending.toLocaleString("en-US")} stored events will be permanently deleted.`
+                : `${pending.toLocaleString("en-US")} event(s) from "${target}" will be permanently deleted.`}{" "}
+              This cannot be undone. A worker that is still following this file will ingest it again on restart.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTarget(undefined)} disabled={deleting}>Cancel</Button>
+            <Button onClick={() => void confirm()} disabled={deleting} className="gap-2 bg-rose-600 text-white hover:bg-rose-700">
+              {deleting ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
 }
 
 export default App

@@ -73,6 +73,51 @@ public sealed class JsonLinesEventRepository(string path) : IEventRepository, ID
         }
     }
 
+    public async Task<int> DeleteAsync(string? sourceName, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!File.Exists(_path))
+            {
+                return 0;
+            }
+
+            var kept = new List<string>();
+            var deletedIds = new HashSet<Guid>();
+            await foreach (var line in File.ReadLinesAsync(_path, cancellationToken))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                var item = JsonSerializer.Deserialize<CanonicalEvent>(line, JsonOptions);
+                if (item is not null && (sourceName is null || string.Equals(item.SourceName, sourceName, StringComparison.Ordinal)))
+                {
+                    deletedIds.Add(item.Id);
+                    continue;
+                }
+
+                kept.Add(line);
+            }
+
+            if (deletedIds.Count == 0)
+            {
+                return 0;
+            }
+
+            var temporaryPath = _path + ".tmp";
+            await File.WriteAllLinesAsync(temporaryPath, kept, cancellationToken);
+            File.Move(temporaryPath, _path, overwrite: true);
+            return deletedIds.Count;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private static bool Matches(CanonicalEvent item, string query)
     {
         if (string.IsNullOrWhiteSpace(query))

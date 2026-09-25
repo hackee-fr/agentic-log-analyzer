@@ -58,5 +58,33 @@ public sealed class JsonLinesEventRepositoryTests
             }
         }
     }
+
+    [Fact]
+    public async Task DeleteAsync_BySourceThenAll_RemovesMatchingEvents()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"events-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            using var repository = new JsonLinesEventRepository(path);
+            foreach (var sourceName in new[] { "first.log", "first.log", "second.log" })
+            {
+                await repository.SaveAsync(new CanonicalEvent(
+                    Guid.NewGuid(), new DateTimeOffset(2026, 9, 25, 8, 42, 1, TimeSpan.Zero), "api", sourceName,
+                    "system", "boot", null, null, null, null, "boot"), CancellationToken.None);
+            }
+
+            Assert.Equal(2, await repository.DeleteAsync("first.log", CancellationToken.None));
+            Assert.Equal("second.log", Assert.Single(await repository.SearchAsync(string.Empty, CancellationToken.None)).SourceName);
+            Assert.Equal(1, await repository.DeleteAsync(null, CancellationToken.None));
+            Assert.Empty(await repository.SearchAsync(string.Empty, CancellationToken.None));
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
 }
 

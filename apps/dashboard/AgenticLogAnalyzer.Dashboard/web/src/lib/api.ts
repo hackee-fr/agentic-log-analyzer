@@ -47,7 +47,7 @@ export type InvestigationReport = {
   llmUsed: boolean
 }
 
-const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5080").replace(/\/$/, "")
+export const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5080").replace(/\/$/, "")
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, init)
@@ -60,6 +60,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getEvents(query = "") {
   return request<CanonicalEvent[]>(`/api/events?q=${encodeURIComponent(query)}`)
+}
+
+export type ApiSettings = {
+  environment: string
+  storage: { provider: string; fileName: string; initialized: boolean }
+  analysis: {
+    deterministicEngineEnabled: boolean
+    llmEnabled: boolean
+    llmProvider: string | null
+    llmModel: string | null
+  }
+}
+
+export function getApiSettings() {
+  return request<ApiSettings>("/api/settings")
 }
 
 export function ingestLogs(content: string, source: string) {
@@ -97,4 +112,10 @@ export function askQuestion(question: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question }),
   })
+}
+
+/** Deletes the events of one source, or every stored event when `source` is null. */
+export function deleteEvents(source: string | null) {
+  const query = source === null ? "all=true" : `source=${encodeURIComponent(source)}`
+  return request<{ deleted: number; source: string | null }>(`/api/events?${query}`, { method: "DELETE" })
 }

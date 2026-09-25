@@ -64,8 +64,46 @@ app.MapGet("/api/info", () => Results.Ok(new
     llmEnabled
 }));
 
+app.MapGet("/api/settings", () => Results.Ok(new
+{
+    environment = app.Environment.EnvironmentName,
+    storage = new
+    {
+        provider = storageProvider,
+        fileName = Path.GetFileName(storageProvider.Equals("sqlite", StringComparison.OrdinalIgnoreCase)
+            ? sqlitePath
+            : jsonLinesPath),
+        initialized = File.Exists(storageProvider.Equals("sqlite", StringComparison.OrdinalIgnoreCase)
+            ? sqlitePath
+            : jsonLinesPath)
+    },
+    analysis = new
+    {
+        deterministicEngineEnabled = true,
+        llmEnabled,
+        llmProvider = llmEnabled ? "Ollama" : null,
+        llmModel = llmEnabled ? builder.Configuration["Llm:Ollama:Model"] ?? "llama3.2" : null
+    }
+}));
+
 app.MapGet("/api/events", async (string? q, IEventRepository repository, CancellationToken token) =>
     Results.Ok(await repository.SearchAsync(q ?? string.Empty, token)));
+
+app.MapDelete("/api/events", async Task<IResult> (
+    string? source,
+    bool? all,
+    IEventRepository repository,
+    CancellationToken token) =>
+{
+    if (!string.IsNullOrWhiteSpace(source))
+    {
+        return Results.Ok(new { deleted = await repository.DeleteAsync(source, token), source });
+    }
+
+    return all == true
+        ? Results.Ok(new { deleted = await repository.DeleteAsync(null, token), source = (string?)null })
+        : Results.BadRequest(new { error = "Specify ?source=<source name> or ?all=true." });
+});
 
 app.MapPost("/api/investigations", async (
     InvestigationRequest request,

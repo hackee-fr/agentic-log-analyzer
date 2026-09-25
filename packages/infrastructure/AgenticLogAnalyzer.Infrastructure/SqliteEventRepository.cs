@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using AgenticLogAnalyzer.Application.Abstractions;
 using AgenticLogAnalyzer.Domain.Logs;
@@ -129,6 +130,23 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
         return events;
     }
 
+    public async Task<int> DeleteAsync(string? sourceName, CancellationToken cancellationToken)
+    {
+        await EnsureInitializedAsync(cancellationToken);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = sourceName is null
+            ? "DELETE FROM CanonicalEvents;"
+            : "DELETE FROM CanonicalEvents WHERE SourceName = $sourceName;";
+        if (sourceName is not null)
+        {
+            command.Parameters.AddWithValue("$sourceName", sourceName);
+        }
+
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
     {
         if (_initialized)
@@ -164,6 +182,10 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
                 );
                 CREATE INDEX IF NOT EXISTS IX_CanonicalEvents_TimestampUtcTicks
                     ON CanonicalEvents (TimestampUtcTicks DESC);
+                CREATE TABLE IF NOT EXISTS StorageMetadata (
+                    Key TEXT NOT NULL PRIMARY KEY,
+                    Value TEXT NOT NULL
+                );
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
             await ImportLegacyJsonLinesIfEmptyAsync(connection, cancellationToken);
@@ -187,8 +209,22 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
         using var transaction = connection.BeginTransaction(deferred: false);
         await using var countCommand = connection.CreateCommand();
         countCommand.Transaction = transaction;
-        countCommand.CommandText = "SELECT COUNT(*) FROM CanonicalEvents;";
-        if ((long)(await countCommand.ExecuteScalarAsync(cancellationToken) ?? 0L) != 0)
+        // The import runs at most once per database, so deleting every event does not bring legacy data back.
+        countCommand.CommandText = """
+            SELECT EXISTS (SELECT 1 FROM StorageMetadata WHERE Key = 'LegacyJsonLinesImported')
+                OR EXISTS (SELECT 1 FROM CanonicalEvents);
+            """;
+        var alreadyHandled = (long)(await countCommand.ExecuteScalarAsync(cancellationToken) ?? 0L) != 0;
+
+        await using var markerCommand = connection.CreateCommand();
+        markerCommand.Transaction = transaction;
+        markerCommand.CommandText = """
+            INSERT OR IGNORE INTO StorageMetadata (Key, Value) VALUES ('LegacyJsonLinesImported', $importedAt);
+            """;
+        markerCommand.Parameters.AddWithValue("$importedAt", DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        await markerCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        if (alreadyHandled)
         {
             await transaction.CommitAsync(cancellationToken);
             return;
