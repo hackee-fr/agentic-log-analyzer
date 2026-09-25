@@ -41,6 +41,7 @@ import {
 } from "recharts"
 import { toast } from "sonner"
 import {
+  apiHost,
   deleteEvents,
   getEvents,
   ingestLogs,
@@ -459,7 +460,7 @@ function App() {
             <span className="flex items-center gap-2"><Activity className="size-3.5 text-emerald-400" /> API status</span>
             <span className={`size-2 rounded-full ${connected ? "bg-emerald-400" : "bg-rose-400"}`} />
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">{connected ? "Connected · localhost:5080" : "Waiting for API"}</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">{connected ? `Connected · ${apiHost}` : "Waiting for API"}</p>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
             <div className={`h-full rounded-full transition-all ${connected ? "w-full bg-emerald-400" : "w-1/4 bg-rose-400"}`} />
           </div>

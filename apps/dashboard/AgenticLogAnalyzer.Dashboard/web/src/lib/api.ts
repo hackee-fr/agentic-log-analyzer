@@ -47,7 +47,17 @@ export type InvestigationReport = {
   llmUsed: boolean
 }
 
-export const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5080").replace(/\/$/, "")
+declare global {
+  interface Window {
+    __APP_CONFIG__?: { apiBase?: string }
+  }
+}
+
+// The desktop app sets apiBase to "" (API on the same origin); the web dashboard falls back to the build setting.
+export const apiBase = (window.__APP_CONFIG__?.apiBase ?? import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5080").replace(/\/$/, "")
+
+/** Host shown to users, e.g. "localhost:5080" or "127.0.0.1:53712" in the desktop app. */
+export const apiHost = new URL(apiBase || window.location.origin).host
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, init)

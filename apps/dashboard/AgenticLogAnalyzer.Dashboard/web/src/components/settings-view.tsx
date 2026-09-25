@@ -105,7 +105,7 @@ export function SettingsView({ apiConnected, eventCount, detectionCount }: Setti
           badge={apiConnected ? "Connected" : "Unavailable"}
           tone={apiConnected ? "green" : "rose"}
         >
-          <SettingRow label="Endpoint" value={apiBase} />
+          <SettingRow label="Endpoint" value={apiBase || window.location.origin} />
           <SettingRow label="Environment" value={loading ? "Loading…" : settings?.environment ?? "Unavailable"} />
         </StatusCard>
 

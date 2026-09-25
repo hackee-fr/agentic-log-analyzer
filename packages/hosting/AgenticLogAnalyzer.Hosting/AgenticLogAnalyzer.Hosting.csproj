@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\agentic\AgenticLogAnalyzer.Agentic\AgenticLogAnalyzer.Agentic.csproj" />
+    <ProjectReference Include="..\..\application\AgenticLogAnalyzer.Application\AgenticLogAnalyzer.Application.csproj" />
+    <ProjectReference Include="..\..\correlation\AgenticLogAnalyzer.Correlation\AgenticLogAnalyzer.Correlation.csproj" />
+    <ProjectReference Include="..\..\detection\AgenticLogAnalyzer.Detection\AgenticLogAnalyzer.Detection.csproj" />
+    <ProjectReference Include="..\..\domain\AgenticLogAnalyzer.Domain\AgenticLogAnalyzer.Domain.csproj" />
+    <ProjectReference Include="..\..\infrastructure\AgenticLogAnalyzer.Infrastructure\AgenticLogAnalyzer.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\llm\AgenticLogAnalyzer.Llm\AgenticLogAnalyzer.Llm.csproj" />
+  </ItemGroup>
+</Project>

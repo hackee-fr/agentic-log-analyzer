@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <!-- WinExe hides the console window on Windows; it behaves like Exe on macOS and Linux. -->
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>AgenticLogAnalyzer</AssemblyName>
+    <RootNamespace>AgenticLogAnalyzer.Desktop</RootNamespace>
+    <ApplicationIcon Condition="Exists('Assets\app.ico')">Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Photino.NET" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\packages\hosting\AgenticLogAnalyzer.Hosting\AgenticLogAnalyzer.Hosting.csproj" />
+  </ItemGroup>
+
+  <!-- The built React dashboard (pnpm build) is shipped next to the executable in wwwroot/. -->
+  <ItemGroup>
+    <None Include="..\..\dashboard\AgenticLogAnalyzer.Dashboard\web\dist\**\*"
+          Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="WarnMissingDashboard" BeforeTargets="Build" Condition="!Exists('..\..\dashboard\AgenticLogAnalyzer.Dashboard\web\dist\index.html')">
+    <Warning Text="Dashboard not built: run 'pnpm build' in apps/dashboard/AgenticLogAnalyzer.Dashboard/web (or 'make desktop')." />
+  </Target>
+</Project>
