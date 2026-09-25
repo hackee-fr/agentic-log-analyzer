@@ -105,6 +105,17 @@ public sealed class LogChatServiceTests
     }
 
     [Fact]
+    public async Task AskAsync_LlmContradictsDetection_IsRejectedForDeterministicAnswer()
+    {
+        var llm = new FakeLlm("Non, il n'y a pas d'indication d'attaque, juste une erreur humaine.");
+        var answer = await CreateService(llm).AskAsync(new ChatRequest("Y a-t-il une attaque ?"), CancellationToken.None);
+
+        Assert.False(answer.LlmUsed);
+        Assert.Equal(answer.DeterministicAnswer, answer.Answer);
+        Assert.Contains("rejetée", answer.LlmError, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AskAsync_LlmFailure_FallsBackToDeterministicAnswer()
     {
         var answer = await CreateService(new FailingLlm()).AskAsync(new ChatRequest("résumé"), CancellationToken.None);

@@ -17,12 +17,17 @@ public sealed class LogChatService(
 {
     private const int MaxListedEvents = 15;
     private const int MaxTimelineEvents = 25;
-    private const int MaxPromptEvidence = 40;
+    private const int MaxPromptEvidence = 15;
 
     private const string SystemPrompt =
-        "Tu es un assistant d'analyse de logs. Réponds en français, de façon concise, uniquement à partir des faits "
-        + "et des événements fournis. N'invente aucun événement, utilisateur, IP ou chiffre. Si les faits ne "
-        + "permettent pas de répondre, dis-le clairement. Distingue les faits observés des hypothèses.";
+        "Tu es un assistant d'analyse de logs de sécurité. Tu reformules en français, de façon concise, les faits "
+        + "calculés par un moteur déterministe. Règles : "
+        + "1) Les faits et les détections fournis sont vérifiés : ne les contredis jamais et ne les minimise pas. "
+        + "2) Si une détection est présente, mentionne-la explicitement comme un signal à traiter. "
+        + "3) N'invente aucun événement, utilisateur, adresse IP, date ou chiffre absent des faits. "
+        + "4) Sépare les faits observés des hypothèses, et présente toute hypothèse comme à vérifier. "
+        + "5) Si les faits ne permettent pas de répondre, dis-le clairement. "
+        + "6) Réponds en 3 à 6 phrases maximum, sans recopier les lignes de log une par une.";
 
     public async Task<ChatAnswer> AskAsync(ChatRequest request, CancellationToken cancellationToken)
     {
@@ -97,8 +102,15 @@ public sealed class LogChatService(
         try
         {
             var text = await llmProvider!.GenerateAsync(SystemPrompt, prompt.ToString(), cancellationToken);
-            return string.IsNullOrWhiteSpace(text)
-                ? answer with { LlmError = "Le LLM a renvoyé une réponse vide." }
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return answer with { LlmError = "Le LLM a renvoyé une réponse vide." };
+            }
+
+            var facts = answer.DeterministicAnswer + "\n" + string.Join("\n", answer.Evidence.Select(item => item.RawContent));
+            var issues = LlmAnswerVerifier.Verify(text, facts, answer.Detections.Count > 0);
+            return issues.Count > 0
+                ? answer with { LlmError = $"Réponse du LLM rejetée : {string.Join(" ; ", issues)}." }
                 : answer with { Answer = text.Trim(), LlmUsed = true };
         }
         catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException

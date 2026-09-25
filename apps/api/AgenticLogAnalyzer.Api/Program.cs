@@ -45,8 +45,14 @@ if (llmEnabled)
 {
     builder.Services.AddSingleton(new OllamaOptions(
         new Uri(builder.Configuration["Llm:Ollama:BaseUrl"] ?? "http://localhost:11434"),
-        builder.Configuration["Llm:Ollama:Model"] ?? "llama3.2"));
-    builder.Services.AddHttpClient<ILlmProvider, OllamaLlmProvider>(client => client.Timeout = TimeSpan.FromMinutes(2));
+        builder.Configuration["Llm:Ollama:Model"] ?? "llama3.2",
+        builder.Configuration["Llm:Ollama:KeepAlive"] ?? "15m",
+        builder.Configuration.GetValue("Llm:Ollama:MaxOutputTokens", 350)));
+    // CPU inference in Docker can be slow, especially while the model loads on the first request.
+    var llmTimeout = TimeSpan.FromSeconds(builder.Configuration.GetValue("Llm:Ollama:TimeoutSeconds", 180));
+    builder.Services.AddHttpClient<OllamaLlmProvider>(client => client.Timeout = llmTimeout);
+    builder.Services.AddTransient<ILlmProvider>(services => services.GetRequiredService<OllamaLlmProvider>());
+    builder.Services.AddTransient<ILlmStatusProvider>(services => services.GetRequiredService<OllamaLlmProvider>());
 }
 
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
@@ -85,6 +91,30 @@ app.MapGet("/api/settings", () => Results.Ok(new
         llmModel = llmEnabled ? builder.Configuration["Llm:Ollama:Model"] ?? "llama3.2" : null
     }
 }));
+
+app.MapGet("/api/llm/status", async Task<IResult> (IServiceProvider services, CancellationToken token) =>
+{
+    var statusProvider = services.GetService<ILlmStatusProvider>();
+    if (statusProvider is null)
+    {
+        return Results.Ok(new { enabled = false, status = (LlmStatus?)null });
+    }
+
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+    timeout.CancelAfter(TimeSpan.FromSeconds(5));
+    try
+    {
+        return Results.Ok(new { enabled = true, status = await statusProvider.GetStatusAsync(timeout.Token) });
+    }
+    catch (OperationCanceledException) when (!token.IsCancellationRequested)
+    {
+        return Results.Ok(new
+        {
+            enabled = true,
+            status = new LlmStatus("Ollama", builder.Configuration["Llm:Ollama:Model"] ?? "llama3.2", false, false, [], "Ollama did not answer within 5 seconds.")
+        });
+    }
+});
 
 app.MapGet("/api/events", async (string? q, IEventRepository repository, CancellationToken token) =>
     Results.Ok(await repository.SearchAsync(q ?? string.Empty, token)));

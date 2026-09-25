@@ -119,3 +119,17 @@ export function deleteEvents(source: string | null) {
   const query = source === null ? "all=true" : `source=${encodeURIComponent(source)}`
   return request<{ deleted: number; source: string | null }>(`/api/events?${query}`, { method: "DELETE" })
 }
+
+export type LlmStatus = {
+  provider: string
+  model: string
+  reachable: boolean
+  modelAvailable: boolean
+  installedModels: string[]
+  error: string | null
+}
+
+/** Live LLM availability; `enabled` is false when the API runs without an LLM provider. */
+export function getLlmStatus() {
+  return request<{ enabled: boolean; status: LlmStatus | null }>("/api/llm/status")
+}

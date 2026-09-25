@@ -26,5 +26,6 @@
     <ProjectReference Include="..\..\packages\connectors\AgenticLogAnalyzer.Connectors\AgenticLogAnalyzer.Connectors.csproj" />
     <ProjectReference Include="..\..\packages\domain\AgenticLogAnalyzer.Domain\AgenticLogAnalyzer.Domain.csproj" />
     <ProjectReference Include="..\..\packages\infrastructure\AgenticLogAnalyzer.Infrastructure\AgenticLogAnalyzer.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\packages\llm\AgenticLogAnalyzer.Llm\AgenticLogAnalyzer.Llm.csproj" />
   </ItemGroup>
 </Project>
