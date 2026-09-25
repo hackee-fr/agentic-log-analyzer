@@ -4,16 +4,16 @@
 
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG TARGETARCH
-ARG VERSION=0.0.0-dev
+ARG APP_VERSION=0.0.0-dev
 WORKDIR /src
 COPY global.json Directory.Build.props Directory.Packages.props ./
 COPY packages/ packages/
 COPY apps/api/ apps/api/
-# NuGet vulnerability auditing runs in its own CI job; inside the image build a failed audit lookup would
-# become an error through TreatWarningsAsErrors, so it is disabled here.
-RUN dotnet restore apps/api/AgenticLogAnalyzer.Api/AgenticLogAnalyzer.Api.csproj -a "$TARGETARCH" -p:NuGetAudit=false -v normal
+# APP_VERSION, not VERSION: build args are visible as environment variables, and MSBuild would read
+# VERSION as its Version property (an invalid value such as "main" makes restore fail silently).
+RUN dotnet restore apps/api/AgenticLogAnalyzer.Api/AgenticLogAnalyzer.Api.csproj -a "$TARGETARCH"
 RUN dotnet publish apps/api/AgenticLogAnalyzer.Api/AgenticLogAnalyzer.Api.csproj \
-      -c Release -a "$TARGETARCH" --no-restore -p:NuGetAudit=false -p:Version="$VERSION" -p:DebugType=none -o /app \
+      -c Release -a "$TARGETARCH" --no-restore -p:Version="$APP_VERSION" -p:DebugType=none -o /app \
  && mkdir -p /data && chown 1654:1654 /data
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS runtime

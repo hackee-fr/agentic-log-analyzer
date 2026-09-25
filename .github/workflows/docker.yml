@@ -99,6 +99,16 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Resolve .NET assembly version
+        id: app-version
+        run: |
+          version="0.0.0-dev"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
+            version="${BASH_REMATCH[1]}"
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "Application version: $version"
+
       - name: Build image for scanning (linux/amd64)
         uses: docker/build-push-action@v6
         with:
@@ -107,7 +117,7 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: scan/${{ matrix.image }}:${{ github.sha }}
-          build-args: VERSION=${{ steps.meta.outputs.version }}
+          build-args: ${{ matrix.image == 'api' && format('APP_VERSION={0}', steps.app-version.outputs.value) || '' }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
@@ -135,6 +145,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ steps.meta.outputs.version }}
+          build-args: ${{ matrix.image == 'api' && format('APP_VERSION={0}', steps.app-version.outputs.value) || '' }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
