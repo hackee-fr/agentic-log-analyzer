@@ -1,0 +1,89 @@
+name: Release
+
+# Automatic releases. To ship a new version:
+#   1. set <Version> in Directory.Build.props (e.g. 0.4.0);
+#   2. add a "## [0.4.0] - YYYY-MM-DD" section to CHANGELOG.md;
+#   3. push to main.
+# When the vX.Y.Z tag does not exist yet, this workflow verifies the code, builds the desktop installers,
+# creates the tag and the GitHub Release (notes taken from the changelog) and publishes the Docker images.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Directory.Build.props
+      - CHANGELOG.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Detect new version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      release: ${{ steps.detect.outputs.release }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compare Directory.Build.props with existing tags
+        id: detect
+        run: |
+          version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props | head -1)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error file=Directory.Build.props::<Version> '$version' is not a SemVer version (X.Y.Z)."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released: nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! grep -Eq "^## \[${version//./\\.}\]" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::Add a '## [$version] - $(date -u +%F)' section before releasing v$version."
+            exit 1
+          fi
+
+          echo "New version v$version: releasing."
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "### Releasing v$version" >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    name: Verify
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  desktop:
+    name: Desktop packages
+    needs: [prepare, verify]
+    if: needs.prepare.outputs.release == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      publish-release: true
+
+  docker:
+    name: Docker images
+    needs: [prepare, verify]
+    if: needs.prepare.outputs.release == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}

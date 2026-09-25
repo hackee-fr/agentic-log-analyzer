@@ -1,7 +1,7 @@
 ; Inno Setup script for the Windows desktop build (per-user install, no admin rights required).
 ; Built by scripts/dev/desktop-package.sh with /DAppVersion, /DSourceDir, /DOutputDir and /DOutputBaseName.
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.3.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\artifacts\desktop\win-x64\bin"

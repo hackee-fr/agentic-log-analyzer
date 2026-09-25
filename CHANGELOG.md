@@ -6,6 +6,8 @@ Desktop installers and Docker images are published from `v*` tags (see the READM
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-25
+
 ### Added
 
 - **Log assistant**: `POST /api/chat` and a dashboard Assistant view answer plain-language questions (summary, security, source IPs, users, timeline, keyword search) from stored events and deterministic detections. Every answer lists its evidence events.
@@ -24,10 +26,12 @@ Desktop installers and Docker images are published from `v*` tags (see the READM
 - **CI/CD**:
   - `CI` workflow running `make verify`;
   - `Docker images` workflow: dependency audit, Trivy scan, then multi-arch push to `ghcr.io` from `main` and `v*` tags.
+- **Automatic releases**: when `<Version>` in `Directory.Build.props` changes on `main` and `CHANGELOG.md` has a matching section, the `Release` workflow verifies the code, then creates the `vX.Y.Z` tag, the GitHub Release (installers and notes from this changelog) and the `:X.Y.Z` Docker images.
 - **`make` commands**: `start`, `api`, `front`, `desktop`, `desktop-publish`, `desktop-package`, `prod`, `prod-down`, `worker`, `stop`, `test` and `verify`.
 
 ### Changed
 
+- The product version is declared once, in `Directory.Build.props`; `/api/info`, the installers and the images use it.
 - The API services and routes moved to `packages/hosting`, shared by the web API and the desktop app.
 - The worker no longer writes its demo lines into the shared database unless `Ingestion__UseSample=true` is set.
 - The dashboard reads its API address from `app-config.js`: the same origin in the desktop app and the container stack, `http://localhost:5080` in the web development setup.
@@ -68,6 +72,7 @@ Desktop installers and Docker images are published from `v*` tags (see the READM
 - PostgreSQL development service in Docker Compose.
 - Requirements document, development contract (`AGENTS.md`), and agent and skill contracts.
 
-[Unreleased]: https://github.com/hackee-fr/agentic-log-analyzer/compare/cd61555...HEAD
+[Unreleased]: https://github.com/hackee-fr/agentic-log-analyzer/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/cd61555...v0.3.0
 [0.2.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/248368c...cd61555
 [0.1.0]: https://github.com/hackee-fr/agentic-log-analyzer/commit/248368c

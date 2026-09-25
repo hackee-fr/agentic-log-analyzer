@@ -8,5 +8,7 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <Deterministic>true</Deterministic>
+    <!-- Product version; release builds override it from the v* tag (-p:Version=...). -->
+    <Version>0.3.0</Version>
   </PropertyGroup>
 </Project>

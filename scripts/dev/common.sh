@@ -30,6 +30,11 @@ free_port() {
   done
 }
 
+# Product version declared in Directory.Build.props (used when VERSION is not set).
+product_version() {
+  sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$ROOT/Directory.Build.props" | head -1
+}
+
 # .NET runtime identifier of this machine, e.g. osx-arm64, linux-x64, win-x64.
 detect_rid() {
   local os arch

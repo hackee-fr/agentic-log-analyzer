@@ -82,13 +82,7 @@ Output goes to `artifacts/desktop/<rid>/`; macOS targets produce `Agentic Log An
 
 `make desktop-package [RID=…] [VERSION=…]` also wraps the build in `artifacts/packages/`: a `.dmg` on macOS, a `.zip` plus an Inno Setup `-setup.exe` on Windows (when `iscc` is installed), and a `.tar.gz` plus an AppImage on Linux (when `appimagetool` is installed).
 
-Releases: the `Desktop packages` GitHub Actions workflow builds all four targets (`osx-arm64`, `osx-x64`, `win-x64`, `linux-x64`) on native runners. Pushing a tag publishes them as a GitHub Release:
-
-```sh
-git tag v0.3.0 && git push origin v0.3.0
-```
-
-Running the workflow manually (Actions › Desktop packages › Run workflow) only uploads the packages as build artifacts.
+Releases are automatic. To ship a version, set `<Version>` in `Directory.Build.props`, add a matching `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`, and push to `main`. The `Release` workflow then runs the CI checks, builds the desktop installers for all four targets (`osx-arm64`, `osx-x64`, `win-x64`, `linux-x64`) on native runners, creates the `vX.Y.Z` tag and GitHub Release (notes taken from the changelog) and publishes the `:X.Y.Z` Docker images. It does nothing when the tag already exists, and fails if the changelog section is missing. Running `Desktop packages` manually only uploads the packages as build artifacts.
 
 Builds are not signed yet: macOS asks to confirm the first launch (right-click › Open), Windows SmartScreen may warn, and Linux needs WebKitGTK (`libwebkit2gtk-4.1`).
 

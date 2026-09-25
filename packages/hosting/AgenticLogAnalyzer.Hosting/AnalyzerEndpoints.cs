@@ -1,3 +1,4 @@
+using System.Reflection;
 using AgenticLogAnalyzer.Agentic;
 using AgenticLogAnalyzer.Agentic.Chat;
 using AgenticLogAnalyzer.Application.Abstractions;
@@ -12,6 +13,11 @@ namespace AgenticLogAnalyzer.Hosting;
 
 public static class AnalyzerEndpoints
 {
+    // InformationalVersion is "<version>+<commit>"; only the version is reported.
+    private static readonly string ProductVersion =
+        (typeof(AnalyzerEndpoints).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0")
+            .Split('+')[0];
+
     /// <summary>Maps the HTTP API used by the dashboard (health, info, settings, events, chat, investigations, ingest).</summary>
     public static IEndpointRouteBuilder MapLogAnalyzerApi(this IEndpointRouteBuilder app)
     {
@@ -22,7 +28,7 @@ public static class AnalyzerEndpoints
         app.MapGet("/api/info", (AnalyzerHostOptions options) => Results.Ok(new
         {
             name = "Agentic Log Analyzer",
-            version = "0.2.0",
+            version = ProductVersion,
             deterministicEngineReady = true,
             llmEnabled = options.LlmEnabled
         }));

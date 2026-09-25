@@ -3,7 +3,7 @@ name: Docker images
 # Continuous delivery of the web stack (API + dashboard):
 # - pull requests: dependency audit, image build and vulnerability scan (nothing is pushed);
 # - main: images pushed to ghcr.io as :main, :sha-<commit> and :latest;
-# - v* tags: images pushed as :<version> and :<major>.<minor>.
+# - v* tags, or a call from the Release workflow with a version: images pushed as :<version> and :<major>.<minor>.
 # Deploy with infrastructure/docker/docker-compose.prod.yml (IMAGE_TAG selects the version).
 on:
   push:
@@ -12,12 +12,20 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version (X.Y.Z) to tag the images with"
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # "docker" keeps this group distinct from the calling Release workflow's own group.
+  group: ${{ github.workflow }}-docker-${{ inputs.version || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -97,13 +105,19 @@ jobs:
             type=sha,prefix=sha-
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Resolve .NET assembly version
         id: app-version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           version="0.0.0-dev"
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
+          if [[ -n "$INPUT_VERSION" ]]; then
+            version="$INPUT_VERSION"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
             version="${BASH_REMATCH[1]}"
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"

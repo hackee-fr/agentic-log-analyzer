@@ -11,7 +11,7 @@ require pnpm
 RID="${RID:-$(detect_rid)}"
 OUT="$ROOT/artifacts/desktop/$RID"
 APP_NAME="Agentic Log Analyzer"
-VERSION="${VERSION:-0.2.0}"
+VERSION="${VERSION:-$(product_version)}"
 
 WEB="$ROOT/apps/dashboard/AgenticLogAnalyzer.Dashboard/web"
 cd "$WEB"

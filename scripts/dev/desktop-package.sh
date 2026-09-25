@@ -3,11 +3,11 @@
 #   macOS  → artifacts/packages/AgenticLogAnalyzer-<version>-<rid>.dmg
 #   Windows→ AgenticLogAnalyzer-<version>-<rid>-setup.exe (Inno Setup, when iscc is available) and .zip
 #   Linux  → AgenticLogAnalyzer-<version>-<rid>.AppImage (when appimagetool is available) and .tar.gz
-# Inputs: RID (default: this machine), VERSION (default 0.2.0).
+# Inputs: RID (default: this machine), VERSION (default: <Version> in Directory.Build.props).
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-VERSION="${VERSION:-0.2.0}"
+VERSION="${VERSION:-$(product_version)}"
 RID="${RID:-$(detect_rid)}"
 export VERSION RID
 "$(dirname "$0")/desktop-publish.sh"
