@@ -1,0 +1,48 @@
+2026-09-25T17:00:01.124Z INFO  [api-gateway] Server started on port 8080
+2026-09-25T17:00:02.431Z INFO  [database] PostgreSQL connection established host=db.internal port=5432
+2026-09-25T17:00:03.017Z INFO  [auth] User authentication successful user_id=1042 source=192.168.1.42
+2026-09-25T17:00:04.283Z DEBUG [auth] Session created session_id=sess_8f3a2c user_id=1042
+2026-09-25T17:00:05.912Z INFO  [api] GET /api/users/1042 status=200 duration=42ms
+2026-09-25T17:00:07.104Z INFO  [api] GET /api/logs status=200 duration=87ms
+2026-09-25T17:00:08.552Z DEBUG [cache] Cache hit key=user:1042
+2026-09-25T17:00:10.771Z WARN  [api] GET /api/users/9999 status=404 duration=31ms
+2026-09-25T17:00:12.443Z INFO  [worker] Background job started job_id=job_7812 type=log-analysis
+2026-09-25T17:00:14.129Z DEBUG [worker] Processing batch batch_id=451 records=250
+2026-09-25T17:00:16.807Z INFO  [worker] Batch processing completed batch_id=451 duration=2678ms
+2026-09-25T17:00:18.293Z INFO  [api] POST /api/analyze status=202 duration=124ms
+2026-09-25T17:00:20.001Z WARN  [database] Connection pool usage above 80 percent active=42 max=50
+2026-09-25T17:00:21.674Z INFO  [database] New database connection created connection_id=db_9921
+2026-09-25T17:00:23.118Z ERROR [database] Query execution failed error="timeout expired" query_id=q_71291
+2026-09-25T17:00:23.221Z WARN  [api] GET /api/reports/71291 status=500 duration=5012ms
+2026-09-25T17:00:25.491Z INFO  [database] Retrying failed query attempt=1 query_id=q_71291
+2026-09-25T17:00:26.003Z INFO  [database] Query retry successful query_id=q_71291 duration=487ms
+2026-09-25T17:00:27.842Z INFO  [api] GET /api/reports/71291 status=200 duration=621ms
+2026-09-25T17:00:29.330Z DEBUG [security] Incoming request source=10.10.20.15 endpoint=/api/admin
+2026-09-25T17:00:30.118Z WARN  [security] Failed authentication attempt username=admin source=10.10.20.15
+2026-09-25T17:00:31.447Z WARN  [security] Failed authentication attempt username=admin source=10.10.20.15
+2026-09-25T17:00:32.771Z WARN  [security] Failed authentication attempt username=admin source=10.10.20.15
+2026-09-25T17:00:33.092Z ERROR [security] Account temporarily locked username=admin reason=too_many_failed_attempts
+2026-09-25T17:00:35.401Z INFO  [firewall] Connection accepted source=192.168.1.55 destination=10.10.0.20 port=443 protocol=TCP
+2026-09-25T17:00:36.228Z WARN  [firewall] Repeated connection attempts source=192.168.1.77 destination=10.10.0.20 port=22 attempts=18
+2026-09-25T17:00:37.914Z INFO  [ssh] Connection established user=administrator source=192.168.1.42
+2026-09-25T17:00:39.331Z DEBUG [ssh] Public key authentication successful fingerprint=SHA256:ab12cd34ef56
+2026-09-25T17:00:41.008Z INFO  [docker] Container started container=log-analyzer-01 image=hackee/log-analyzer:1.4.2
+2026-09-25T17:00:42.883Z INFO  [docker] Container health check passed container=log-analyzer-01
+2026-09-25T17:00:44.192Z WARN  [docker] Container memory usage high container=log-analyzer-01 usage=87% limit=2048MB
+2026-09-25T17:00:46.517Z ERROR [docker] Container restart detected container=worker-02 exit_code=137
+2026-09-25T17:00:47.003Z INFO  [docker] Restarting container container=worker-02
+2026-09-25T17:00:49.274Z INFO  [docker] Container started container=worker-02
+2026-09-25T17:00:51.882Z DEBUG [monitoring] CPU usage host=server-01 value=72%
+2026-09-25T17:00:52.116Z WARN  [monitoring] CPU usage host=server-01 value=91%
+2026-09-25T17:00:53.729Z WARN  [monitoring] Disk usage host=server-01 mount=/var value=92%
+2026-09-25T17:00:55.447Z ERROR [monitoring] Disk space critically low host=server-01 mount=/var available=7GB
+2026-09-25T17:00:57.002Z INFO  [cleanup] Log rotation started files=128
+2026-09-25T17:00:58.119Z INFO  [cleanup] Old logs compressed files=97 freed=12.4GB
+2026-09-25T17:01:00.773Z INFO  [cleanup] Log rotation completed duration=3771ms
+2026-09-25T17:01:02.481Z INFO  [network] DNS resolution successful hostname=api.internal address=10.10.0.15
+2026-09-25T17:01:04.029Z ERROR [network] DNS resolution failed hostname=backup.internal error="SERVFAIL"
+2026-09-25T17:01:05.771Z WARN  [network] API latency above threshold endpoint=/api/analyze latency=1842ms threshold=1000ms
+2026-09-25T17:01:07.112Z INFO  [scheduler] Scheduled task started task=nightly-analysis
+2026-09-25T17:01:09.882Z ERROR [scheduler] Scheduled task failed task=nightly-analysis error="worker unavailable"
+2026-09-25T17:01:11.421Z INFO  [scheduler] Retrying task task=nightly-analysis attempt=2
+2026-09-25T17:01:14.773Z INFO  [scheduler] Scheduled task completed task=nightly-analysis duration=3352ms

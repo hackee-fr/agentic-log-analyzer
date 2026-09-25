@@ -6,7 +6,8 @@ namespace AgenticLogAnalyzer.Worker;
 public sealed partial class Worker(
     ILogger<Worker> logger,
     ILogConnector connector,
-    ILogParser parser) : BackgroundService
+    ILogParser parser,
+    IEventRepository repository) : BackgroundService
 {
     protected override async Task ExecuteAsync(
         CancellationToken stoppingToken)
@@ -24,6 +25,7 @@ public sealed partial class Worker(
             try
             {
                 var canonicalEvent = parser.Parse(rawLog);
+                await repository.SaveAsync(canonicalEvent, stoppingToken);
 
                 LogCanonicalEvent(
                     logger,

@@ -88,4 +88,33 @@ public sealed class CanonicalEventParserTests
     {
         Assert.True(_parser.CanParse(CreateRawLog(ValidLine)));
     }
+
+    [Fact]
+    public void Parse_TimestampLevelComponentFormat_ExtractsCanonicalFields()
+    {
+        var rawLog = CreateRawLog(
+            "2026-09-25T17:00:30.118Z WARN  [security] Failed authentication attempt username=admin source=10.10.20.15");
+
+        var result = _parser.Parse(rawLog);
+
+        Assert.Equal("security", result.Category);
+        Assert.Equal("Failed authentication attempt", result.Action);
+        Assert.Equal("failure", result.Result);
+        Assert.Equal("admin", result.User);
+        Assert.Equal("10.10.20.15", result.SourceIp);
+        Assert.Equal(rawLog.Content, result.RawContent);
+    }
+
+    [Fact]
+    public void Parse_EscapedKeyAndQuotedValue_ExtractsStructuredAttributes()
+    {
+        var rawLog = CreateRawLog(
+            "2026-09-25T17:00:23.118Z ERROR [database] Query execution failed error=\"timeout expired\" query\\_id=q_71291");
+
+        var result = _parser.Parse(rawLog);
+
+        Assert.Equal("database", result.Category);
+        Assert.Equal("Query execution failed", result.Action);
+        Assert.Equal("failure", result.Result);
+    }
 }

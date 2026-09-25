@@ -1,5 +1,8 @@
 bin/
 obj/
+node_modules/
+dist/
+dist-ssr/
 .vs/
 *.user
 *.suo
@@ -15,4 +18,5 @@ appsettings.*.Local.json
 .DS_Store
 Thumbs.db
 docker-data/
+data/
 *.generated.md

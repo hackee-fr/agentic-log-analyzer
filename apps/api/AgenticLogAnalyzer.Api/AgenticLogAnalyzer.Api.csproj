@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
+    <ProjectReference Include="..\..\..\packages\connectors\AgenticLogAnalyzer.Connectors\AgenticLogAnalyzer.Connectors.csproj" />
+    <ProjectReference Include="..\..\..\packages\domain\AgenticLogAnalyzer.Domain\AgenticLogAnalyzer.Domain.csproj" />
     <ProjectReference Include="..\..\..\packages\application\AgenticLogAnalyzer.Application\AgenticLogAnalyzer.Application.csproj" />
     <ProjectReference Include="..\..\..\packages\infrastructure\AgenticLogAnalyzer.Infrastructure\AgenticLogAnalyzer.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\packages\detection\AgenticLogAnalyzer.Detection\AgenticLogAnalyzer.Detection.csproj" />

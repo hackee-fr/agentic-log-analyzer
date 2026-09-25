@@ -25,17 +25,43 @@ The deterministic engine works without an LLM. The initial target is PostgreSQL 
 - `knowledge` — source and protocol knowledge
 - `infrastructure` — Docker, PostgreSQL, and Hyper-V lab assets
 
-## Getting started
+## Run locally
 
-Install the .NET 10 SDK, then run:
+Install the .NET 10 SDK, Node.js 20+, and pnpm. Build the React dashboard, then start the API and dashboard in separate terminals from the repository root.
 
-```powershell
+```sh
+cd apps/dashboard/AgenticLogAnalyzer.Dashboard/web
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+In terminal 1, start the API:
+
+```sh
+dotnet run --project apps/api/AgenticLogAnalyzer.Api -- --urls http://localhost:5080
+```
+
+In terminal 2, start the dashboard:
+
+```sh
+dotnet run --project apps/dashboard/AgenticLogAnalyzer.Dashboard -- --urls http://localhost:5081
+```
+
+Open `http://localhost:5081`. The dashboard imports `.log` and `.txt` files or pasted lines, searches events, and runs a deterministic investigation. Events are normalized and stored in `data/events.jsonl`; set `Storage__FilePath` to choose another location. The API exposes `GET /api/events?q=...`, `POST /api/ingest`, and `POST /api/investigations` (`{"query":"admin","maxEvents":500}`). Vite development mode (`pnpm dev`) is also available, but this checkout's `C#` directory name contains `#`, which breaks Vite's dependency optimizer; production builds and the ASP.NET dashboard host work normally.
+
+The investigation orchestrator runs Investigation, Detection, Correlation, and Reporting agents in sequence. The first detection rule flags at least three failed authentication events for one user and source IP within ten minutes. Correlations group events by user, source IP, or device. Reports include evidence event IDs; no LLM is called, and Ollama remains unimplemented.
+
+To ingest a file in the background, set `Ingestion__FilePath` and run `dotnet run --project apps/worker/AgenticLogAnalyzer.Worker`. With no file configured the worker reads its small built-in sample. API and worker use the same `Storage__FilePath` setting and default path when launched from the repository root.
+
+The storage implementation is a local JSON Lines repository intended for a single-machine development deployment. Docker Compose currently starts PostgreSQL for future use; the application does not persist events to PostgreSQL yet. The investigation flow is deterministic and does not call an LLM.
+
+## Build
+
+```sh
 dotnet restore
 dotnet build
 dotnet test
 ```
-
-The project is intentionally being built incrementally. The first milestone is a reliable log engine before agentic features are introduced.
 
 ## Security
 

@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\..\application\AgenticLogAnalyzer.Application\AgenticLogAnalyzer.Application.csproj" />
+    <ProjectReference Include="..\..\detection\AgenticLogAnalyzer.Detection\AgenticLogAnalyzer.Detection.csproj" />
+    <ProjectReference Include="..\..\correlation\AgenticLogAnalyzer.Correlation\AgenticLogAnalyzer.Correlation.csproj" />
     <ProjectReference Include="..\..\domain\AgenticLogAnalyzer.Domain\AgenticLogAnalyzer.Domain.csproj" />
   </ItemGroup>
 </Project>
