@@ -13,11 +13,11 @@ public sealed class Worker(
         logger.LogInformation("Agentic Log Analyzer worker started.");
 
         var connector = new SampleLogConnector();
-        var rawLogs = await connector.ReadAsync(stoppingToken);
-        var events = rawLogs.Select(parser.Parse).ToArray();
 
-        foreach (var canonicalEvent in events)
+        await foreach (var rawLog in connector.ReadAsync(stoppingToken))
         {
+            var canonicalEvent = parser.Parse(rawLog);
+
             logger.LogInformation(
                 "Event {EventId}: {Category}/{Action} result={Result} user={User} device={Device}",
                 canonicalEvent.Id,
