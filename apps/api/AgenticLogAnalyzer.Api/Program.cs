@@ -1,23 +1,35 @@
+using AgenticLogAnalyzer.Agentic;
+using AgenticLogAnalyzer.Agentic.Chat;
 using AgenticLogAnalyzer.Application.Abstractions;
 using AgenticLogAnalyzer.Application.Parsing;
-using AgenticLogAnalyzer.Agentic;
 using AgenticLogAnalyzer.Connectors;
 using AgenticLogAnalyzer.Correlation;
 using AgenticLogAnalyzer.Detection;
 using AgenticLogAnalyzer.Domain.Logs;
 using AgenticLogAnalyzer.Infrastructure;
+using AgenticLogAnalyzer.Llm;
 
 var builder = WebApplication.CreateBuilder(args);
-var dataFile = builder.Configuration["Storage:FilePath"]
+var storageProvider = builder.Configuration["Storage:Provider"] ?? "sqlite";
+var sqlitePath = builder.Configuration["Storage:SqlitePath"]
+    ?? DevelopmentStoragePaths.GetDatabasePath();
+var legacyJsonLinesPaths = DevelopmentStoragePaths.GetLegacyJsonLinesPaths();
+var jsonLinesPath = builder.Configuration["Storage:FilePath"]
     ?? Path.Combine(Directory.GetCurrentDirectory(), "data", "events.jsonl");
 var dashboardOrigins = new[]
 {
     builder.Configuration["Dashboard:Origin"] ?? "http://localhost:5081",
     builder.Configuration["Dashboard:DevelopmentOrigin"] ?? "http://localhost:5173"
 };
+var llmEnabled = string.Equals(builder.Configuration["Llm:Provider"], "ollama", StringComparison.OrdinalIgnoreCase);
 
 builder.Services.AddSingleton<ILogParser, CanonicalEventParser>();
-builder.Services.AddSingleton<IEventRepository>(_ => new JsonLinesEventRepository(dataFile));
+builder.Services.AddSingleton<IEventRepository>(_ => storageProvider.ToLowerInvariant() switch
+{
+    "sqlite" => new SqliteEventRepository(sqlitePath, legacyJsonLinesPaths),
+    "jsonl" => new JsonLinesEventRepository(jsonLinesPath),
+    _ => throw new InvalidOperationException($"Unsupported storage provider '{storageProvider}'. Use 'sqlite' or 'jsonl'.")
+});
 builder.Services.AddSingleton<IDetectionRule, RepeatedAuthenticationFailureRule>();
 builder.Services.AddSingleton<EventCorrelationService>();
 builder.Services.AddSingleton<SearchEventsTool>();
@@ -28,6 +40,15 @@ builder.Services.AddSingleton<DetectionAgent>();
 builder.Services.AddSingleton<CorrelationAgent>();
 builder.Services.AddSingleton<ReportingAgent>();
 builder.Services.AddSingleton<InvestigationOrchestrator>();
+builder.Services.AddScoped<LogChatService>();
+if (llmEnabled)
+{
+    builder.Services.AddSingleton(new OllamaOptions(
+        new Uri(builder.Configuration["Llm:Ollama:BaseUrl"] ?? "http://localhost:11434"),
+        builder.Configuration["Llm:Ollama:Model"] ?? "llama3.2"));
+    builder.Services.AddHttpClient<ILlmProvider, OllamaLlmProvider>(client => client.Timeout = TimeSpan.FromMinutes(2));
+}
+
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins(dashboardOrigins).AllowAnyHeader().AllowAnyMethod()));
 
@@ -40,7 +61,7 @@ app.MapGet("/api/info", () => Results.Ok(new
     name = "Agentic Log Analyzer",
     version = "0.2.0",
     deterministicEngineReady = true,
-    llmEnabled = false
+    llmEnabled
 }));
 
 app.MapGet("/api/events", async (string? q, IEventRepository repository, CancellationToken token) =>
@@ -51,6 +72,14 @@ app.MapPost("/api/investigations", async (
     InvestigationOrchestrator orchestrator,
     CancellationToken token) =>
     Results.Ok(await orchestrator.RunAsync(request, token)));
+
+app.MapPost("/api/chat", async Task<IResult> (
+    ChatRequest request,
+    LogChatService chat,
+    CancellationToken token) =>
+    string.IsNullOrWhiteSpace(request.Question)
+        ? Results.BadRequest(new { error = "Ask a question about your logs." })
+        : Results.Ok(await chat.AskAsync(request, token)));
 
 app.MapPost("/api/ingest", async Task<IResult> (
     IngestRequest request,

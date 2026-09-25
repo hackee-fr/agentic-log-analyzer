@@ -4,7 +4,9 @@ import {
   AlertTriangle,
   ArrowRight,
   Bell,
+  Bot,
   Check,
+  ChevronLeft,
   ChevronRight,
   Database,
   FileClock,
@@ -22,6 +24,7 @@ import {
   Sparkles,
   Upload,
   UserRound,
+  X,
 } from "lucide-react"
 import {
   Area,
@@ -62,6 +65,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { LogChat } from "@/components/log-chat"
 import {
   Table,
   TableBody,
@@ -71,10 +75,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-type View = "overview" | "investigations" | "events" | "sources"
+type View = "overview" | "assistant" | "investigations" | "events" | "sources"
 
 const navigation: { id: View; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Overview", icon: Layers3 },
+  { id: "assistant", label: "Assistant", icon: Bot },
   { id: "investigations", label: "Investigations", icon: ShieldAlert },
   { id: "events", label: "Events", icon: FileSearch },
   { id: "sources", label: "Sources", icon: Database },
@@ -138,6 +143,7 @@ function App() {
   const [investigating, setInvestigating] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [fileDropActive, setFileDropActive] = useState(false)
   const [content, setContent] = useState("")
   const [source, setSource] = useState("manual-import")
 
@@ -264,8 +270,16 @@ function App() {
 
   const importFile = async (file?: File) => {
     if (!file) return
-    setSource(file.name)
-    setContent(await file.text())
+    if (!/\.(log|txt)$/i.test(file.name) && file.type !== "text/plain") {
+      toast.error("Unsupported file type", { description: "Choose a .log or .txt text file." })
+      return
+    }
+    try {
+      setSource(file.name)
+      setContent(await file.text())
+    } catch {
+      toast.error("Could not read this file", { description: "Try another .log or .txt file." })
+    }
   }
 
   const submitImport = async () => {
@@ -295,6 +309,7 @@ function App() {
 
   const viewTitle = {
     overview: "Overview",
+    assistant: "Log assistant",
     investigations: "Investigations",
     events: "Events",
     sources: "Log sources",
@@ -371,14 +386,16 @@ function App() {
             <div className="text-[13px] font-semibold text-slate-800">{viewTitle}</div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="relative hidden w-[230px] md:block">
+            <div className="relative hidden w-[250px] md:block">
               <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-slate-400" />
               <Input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search events..."
-                className="h-9 border-slate-200 bg-slate-50 pl-9 text-xs shadow-none focus-visible:bg-white"
+                aria-label="Search events"
+                className="h-9 border-slate-200 bg-slate-50 pr-9 pl-9 text-xs shadow-none focus-visible:bg-white"
               />
+              {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700"><X className="size-3.5" /></button>}
             </div>
             <Button variant="ghost" size="icon" className="relative text-slate-500" aria-label="Open investigations" onClick={() => setActiveView("investigations")}>
               <Bell className="size-[17px]" />
@@ -401,6 +418,13 @@ function App() {
             ))}
           </nav>
         </div>
+        <div className="border-b border-slate-200 bg-white px-4 pb-3 md:hidden">
+          <div className="relative">
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search events, users, IPs..." aria-label="Search events" className="h-10 border-slate-200 bg-slate-50 pr-10 pl-10 text-sm" />
+            {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="absolute top-1/2 right-2 grid size-7 -translate-y-1/2 place-items-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700"><X className="size-4" /></button>}
+          </div>
+        </div>
 
         <main className="mx-auto max-w-[1500px] p-5 sm:p-8">
           <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
@@ -411,6 +435,7 @@ function App() {
               <h1 className="text-[25px] font-semibold tracking-[-0.04em] text-slate-900">{viewTitle}</h1>
               <p className="mt-1 text-[13px] text-slate-500">
                 {activeView === "overview" && "Monitor activity, detections and investigation workflows."}
+                {activeView === "assistant" && "Ask questions in plain language; answers cite the events they rely on."}
                 {activeView === "investigations" && "Evidence-led analysis from your deterministic agent pipeline."}
                 {activeView === "events" && "Search and review normalized security events."}
                 {activeView === "sources" && "Connected log sources and their latest activity."}
@@ -429,12 +454,18 @@ function App() {
                     <DialogDescription>Import pipe-delimited or timestamp / level / component log lines. Invalid rows are reported after processing.</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-2">
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-7 text-center transition hover:border-blue-400 hover:bg-blue-50/40">
+                    <label
+                      onDragOver={(event) => { event.preventDefault(); setFileDropActive(true) }}
+                      onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDropActive(false) }}
+                      onDrop={(event) => { event.preventDefault(); setFileDropActive(false); void importFile(event.dataTransfer.files[0]) }}
+                      className={`relative flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-5 py-7 text-center transition ${fileDropActive ? "border-blue-500 bg-blue-50 ring-2 ring-blue-500/10" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/40"}`}
+                    >
                       <Upload className="mb-2 size-5 text-slate-400" />
-                      <span className="text-sm font-medium text-slate-700">Choose a .log or .txt file</span>
+                      <span className="text-sm font-medium text-slate-700">{content ? "Choose another file" : "Choose a .log or .txt file"}</span>
                       <span className="mt-1 text-xs text-slate-400">or drop a file here</span>
-                      <input type="file" accept=".log,.txt,text/plain" className="sr-only" onChange={(event) => void importFile(event.target.files?.[0])} />
+                      <input type="file" accept=".log,.txt,text/plain" className="sr-only" onChange={(event) => { void importFile(event.target.files?.[0]); event.currentTarget.value = "" }} />
                     </label>
+                    {content && <div className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs"><span className="truncate font-medium text-blue-800">{source} <span className="font-normal text-blue-600">· {content.split(/\r?\n/).filter((line) => line.trim()).length.toLocaleString("en-US")} lines</span></span><button type="button" onClick={() => { setContent(""); setSource("manual-import") }} className="ml-2 shrink-0 rounded px-2 py-1 text-blue-700 hover:bg-blue-100">Clear</button></div>}
                     <div className="grid gap-2">
                       <label htmlFor="source-name" className="text-xs font-medium text-slate-600">Source name</label>
                       <Input id="source-name" value={source} onChange={(event) => setSource(event.target.value)} placeholder="manual-import" />
@@ -482,6 +513,7 @@ function App() {
               onShowInvestigations={() => setActiveView("investigations")}
             />
           )}
+          <div className={activeView === "assistant" ? undefined : "hidden"}><LogChat /></div>
           {activeView === "investigations" && <InvestigationView report={report} loading={loading || investigating} />}
           {activeView === "events" && <EventsView events={visibleEvents} loading={loading} query={query} />}
           {activeView === "sources" && <SourcesView sources={sources} loading={loading} />}
@@ -812,13 +844,27 @@ function EmptyPanel({ icon: Icon, title, detail }: { icon: typeof Shield; title:
 }
 
 function EventsView({ events, loading, query }: { events: CanonicalEvent[]; loading: boolean; query: string }) {
+  const [page, setPage] = useState(1)
+  const pageSize = 25
+  const pageCount = Math.max(1, Math.ceil(events.length / pageSize))
+  const currentPage = Math.min(page, pageCount)
+  const pageEvents = events.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
   return (
     <Card className="gap-0 overflow-hidden rounded-xl border-slate-200/80 py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-slate-100 px-5 py-4">
         <div><CardTitle className="text-[13px] font-semibold">Normalized event stream</CardTitle><CardDescription className="mt-1 text-[11px]">{events.length.toLocaleString("en-US")} events{query ? ` matching “${query}”` : " across all sources"}</CardDescription></div>
-        <Badge variant="outline" className="gap-1.5 bg-emerald-50 text-[10px] text-emerald-700"><span className="size-1.5 rounded-full bg-emerald-500" /> Live data</Badge>
+        <Badge variant="outline" className="gap-1.5 bg-slate-50 text-[10px] text-slate-600"><span className="size-1.5 rounded-full bg-slate-400" /> Stored events</Badge>
       </CardHeader>
-      <EventTable events={events} loading={loading} />
+      <EventTable events={pageEvents} loading={loading} />
+      {!loading && events.length > pageSize && <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <span className="text-[11px] text-slate-500">Showing {((currentPage - 1) * pageSize + 1).toLocaleString("en-US")}–{Math.min(currentPage * pageSize, events.length).toLocaleString("en-US")} of {events.length.toLocaleString("en-US")}</span>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="h-8 gap-1 text-xs"><ChevronLeft className="size-3.5" />Previous</Button>
+          <span className="min-w-16 text-center text-[11px] tabular-nums text-slate-500">Page {currentPage} of {pageCount}</span>
+          <Button variant="outline" size="sm" onClick={() => setPage(Math.min(pageCount, currentPage + 1))} disabled={currentPage === pageCount} className="h-8 gap-1 text-xs">Next<ChevronRight className="size-3.5" /></Button>
+        </div>
+      </div>}
     </Card>
   )
 }

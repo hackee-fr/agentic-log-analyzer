@@ -77,3 +77,24 @@ export function runInvestigation(query = "", maxEvents = 500) {
     body: JSON.stringify({ query, maxEvents }),
   })
 }
+
+export type ChatAnswer = {
+  question: string
+  intent: string
+  appliedFilters: string[]
+  matchedEventCount: number
+  answer: string
+  deterministicAnswer: string
+  evidence: CanonicalEvent[]
+  detections: Detection[]
+  llmUsed: boolean
+  llmError: string | null
+}
+
+export function askQuestion(question: string) {
+  return request<ChatAnswer>("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  })
+}
