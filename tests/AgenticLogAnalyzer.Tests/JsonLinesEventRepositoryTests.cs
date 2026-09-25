@@ -86,5 +86,30 @@ public sealed class JsonLinesEventRepositoryTests
             }
         }
     }
+
+    [Fact]
+    public async Task SaveAndSearch_RoundTripsAttributes()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"events-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            using var repository = new JsonLinesEventRepository(path);
+            await repository.SaveAsync(new CanonicalEvent(
+                Guid.NewGuid(), new DateTimeOffset(2026, 9, 25, 8, 42, 1, TimeSpan.Zero), "api", "docker.log",
+                "docker", "Container restart detected", "failure", null, "worker-02", null, "restart",
+                new Dictionary<string, string> { ["exit_code"] = "137" }), CancellationToken.None);
+
+            var stored = Assert.Single(await repository.SearchAsync(string.Empty, CancellationToken.None));
+
+            Assert.Equal("137", stored.Attributes?["exit_code"]);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
 }
 

@@ -1,4 +1,4 @@
-import { Check, Copy, Globe2, Monitor, Tag, UserRound } from "lucide-react"
+import { Braces, Check, Copy, Globe2, Monitor, Tag, UserRound } from "lucide-react"
 import { useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
@@ -47,6 +47,31 @@ export function EventDetailDialog({
               <Field icon={<Monitor className="size-3.5" />} label="Device" value={event.device} onFilter={onFilter} />
               <Field icon={<Tag className="size-3.5" />} label="Source" value={`${event.sourceName} · ${event.sourceType}`} />
             </div>
+
+            {event.attributes && Object.keys(event.attributes).length > 0 && (
+              <div className="space-y-1.5">
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"><Braces className="size-3.5" />Attributes ({Object.keys(event.attributes).length})</span>
+                <div className="max-h-48 overflow-auto rounded-lg border border-border">
+                  <table className="w-full text-[11px]">
+                    <tbody>
+                      {Object.entries(event.attributes).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => (
+                        <tr key={key} className="border-b border-border last:border-0">
+                          <td className="w-1/3 px-3 py-1.5 align-top font-mono text-muted-foreground">{key}</td>
+                          <td className="px-3 py-1.5 font-mono break-all text-foreground">{value}</td>
+                          <td className="w-px px-2 py-1 text-right">
+                            {onFilter && (
+                              <button type="button" onClick={() => onFilter(value)} className="rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-400 transition hover:bg-blue-500/10 focus-visible:ring-2 focus-visible:ring-blue-500/30 focus-visible:outline-none">
+                                Filter
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">

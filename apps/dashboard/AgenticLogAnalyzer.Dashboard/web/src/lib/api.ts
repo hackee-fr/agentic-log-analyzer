@@ -10,6 +10,8 @@ export type CanonicalEvent = {
   device: string | null
   sourceIp: string | null
   rawContent: string
+  /** Every key=value pair of the source line (lowercased keys); null when the format has none. */
+  attributes: Record<string, string> | null
 }
 
 export type Detection = {

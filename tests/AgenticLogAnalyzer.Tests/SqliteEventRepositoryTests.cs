@@ -101,4 +101,68 @@ public sealed class SqliteEventRepositoryTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task SaveAndSearch_RoundTripsAttributesAndSearchesTheirValues()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            using var repository = new SqliteEventRepository(Path.Combine(directory, "events.sqlite3"));
+            var item = CreateEvent("firewall.log", "Connection accepted") with
+            {
+                Attributes = new Dictionary<string, string> { ["destination"] = "10.10.0.20", ["port"] = "443" }
+            };
+            await repository.SaveAsync(item, CancellationToken.None);
+
+            var stored = Assert.Single(await repository.SearchAsync("10.10.0.20", CancellationToken.None));
+            Assert.Equal("443", stored.Attributes?["port"]);
+            Assert.Equal("10.10.0.20", stored.Attributes?["destination"]);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
+    public async Task Initialize_DatabaseWithoutAttributesColumn_IsMigratedAndKeepsEvents()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, "events.sqlite3");
+            await using (var connection = new SqliteConnection($"Data Source={path}"))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE CanonicalEvents (
+                        Id TEXT NOT NULL PRIMARY KEY, TimestampUtcTicks INTEGER NOT NULL, OffsetTicks INTEGER NOT NULL,
+                        SourceType TEXT NOT NULL, SourceName TEXT NOT NULL, Category TEXT NOT NULL, Action TEXT NOT NULL,
+                        Result TEXT NULL, UserName TEXT NULL, Device TEXT NULL, SourceIp TEXT NULL, RawContent TEXT NOT NULL);
+                    INSERT INTO CanonicalEvents VALUES ('0192e6a1-0000-7000-8000-000000000001', 639000000000000000, 0,
+                        'api', 'old.log', 'system', 'boot', NULL, NULL, NULL, NULL, 'old line');
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
+
+            SqliteConnection.ClearAllPools();
+            using var repository = new SqliteEventRepository(path);
+            var old = Assert.Single(await repository.SearchAsync(string.Empty, CancellationToken.None));
+            Assert.Null(old.Attributes);
+
+            await repository.SaveAsync(CreateEvent("new.log", "new line") with
+            {
+                Attributes = new Dictionary<string, string> { ["status"] = "200" }
+            }, CancellationToken.None);
+            Assert.Contains(await repository.SearchAsync("new.log", CancellationToken.None), item => item.Attributes?["status"] == "200");
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
 }
+

@@ -146,4 +146,46 @@ public sealed class CanonicalEventParserTests
         Assert.True(earlier.Id.ToByteArray(bigEndian: true).AsSpan()
             .SequenceCompareTo(later.Id.ToByteArray(bigEndian: true)) < 0);
     }
+
+    [Fact]
+    public void Parse_StructuredLine_KeepsEveryAttribute()
+    {
+        var result = _parser.Parse(CreateRawLog(
+            "2026-09-25T17:00:35.401Z INFO  [firewall] Connection accepted source=192.168.1.55 destination=10.10.0.20 port=443 protocol=TCP"));
+
+        Assert.NotNull(result.Attributes);
+        Assert.Equal("192.168.1.55", result.Attributes["source"]);
+        Assert.Equal("10.10.0.20", result.Attributes["destination"]);
+        Assert.Equal("443", result.Attributes["port"]);
+        Assert.Equal("TCP", result.Attributes["protocol"]);
+        Assert.Equal("192.168.1.55", result.SourceIp);
+    }
+
+    [Fact]
+    public void Parse_QuotedValuesAndEscapedKeys_AreNormalizedInAttributes()
+    {
+        var result = _parser.Parse(CreateRawLog(
+            "2026-09-25T17:00:23.118Z ERROR [database] Query execution failed error=\"timeout expired\" query\\_id=q_71291 Status=500"));
+
+        Assert.NotNull(result.Attributes);
+        Assert.Equal("timeout expired", result.Attributes["error"]);
+        Assert.Equal("q_71291", result.Attributes["query_id"]);
+        Assert.Equal("500", result.Attributes["status"]);
+    }
+
+    [Fact]
+    public void Parse_RepeatedKey_KeepsLastValueInsteadOfFailing()
+    {
+        var result = _parser.Parse(CreateRawLog(
+            "2026-09-25T17:00:23.118Z WARN  [api] Retry attempt=1 attempt=2"));
+
+        Assert.Equal("2", result.Attributes?["attempt"]);
+    }
+
+    [Fact]
+    public void Parse_PipeLineOrMessageWithoutPairs_HasNoAttributes()
+    {
+        Assert.Null(_parser.Parse(CreateRawLog(ValidLine)).Attributes);
+        Assert.Null(_parser.Parse(CreateRawLog("2026-09-25T17:00:01.124Z INFO  [api-gateway] Server started on port 8080")).Attributes);
+    }
 }

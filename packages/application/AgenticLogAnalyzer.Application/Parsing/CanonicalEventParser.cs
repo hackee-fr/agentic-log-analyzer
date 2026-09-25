@@ -71,11 +71,14 @@ public sealed partial class CanonicalEventParser : ILogParser
             throw new FormatException($"Invalid timestamp: '{fields.Timestamp}'.");
         }
 
-        var attributes = AttributeRegex().Matches(fields.Message)
-            .ToDictionary(
-                match => match.Groups["key"].Value.Replace("\\_", "_", StringComparison.Ordinal).ToLowerInvariant(),
-                match => Unquote(match.Groups["value"].Value),
-                StringComparer.OrdinalIgnoreCase);
+        // A key repeated on one line keeps its last value instead of failing the whole line.
+        var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match match in AttributeRegex().Matches(fields.Message))
+        {
+            var key = match.Groups["key"].Value.Replace("\\_", "_", StringComparison.Ordinal).ToLowerInvariant();
+            attributes[key] = Unquote(match.Groups["value"].Value);
+        }
+
         var action = ExtractAction(fields.Message);
         var result = GetResult(fields.Level, fields.Message);
         var user = FindAttribute(attributes, "user", "user_id", "username", "account");
@@ -94,7 +97,8 @@ public sealed partial class CanonicalEventParser : ILogParser
             user,
             device,
             sourceIp,
-            rawLog.Content);
+            rawLog.Content,
+            attributes.Count == 0 ? null : attributes);
     }
 
     private static bool TrySplitStructured(string content, out StructuredFields fields)

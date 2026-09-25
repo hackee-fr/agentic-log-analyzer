@@ -51,10 +51,10 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
         command.CommandText = """
             INSERT INTO CanonicalEvents (
                 Id, TimestampUtcTicks, OffsetTicks, SourceType, SourceName,
-                Category, Action, Result, UserName, Device, SourceIp, RawContent)
+                Category, Action, Result, UserName, Device, SourceIp, RawContent, Attributes)
             VALUES (
                 $id, $timestampUtcTicks, $offsetTicks, $sourceType, $sourceName,
-                $category, $action, $result, $userName, $device, $sourceIp, $rawContent)
+                $category, $action, $result, $userName, $device, $sourceIp, $rawContent, $attributes)
             ON CONFLICT(Id) DO UPDATE SET
                 TimestampUtcTicks = excluded.TimestampUtcTicks,
                 OffsetTicks = excluded.OffsetTicks,
@@ -66,7 +66,8 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
                 UserName = excluded.UserName,
                 Device = excluded.Device,
                 SourceIp = excluded.SourceIp,
-                RawContent = excluded.RawContent;
+                RawContent = excluded.RawContent,
+                Attributes = excluded.Attributes;
             """;
         AddEventParameters(command, canonicalEvent);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -82,7 +83,7 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT Id, TimestampUtcTicks, OffsetTicks, SourceType, SourceName,
-                   Category, Action, Result, UserName, Device, SourceIp, RawContent
+                   Category, Action, Result, UserName, Device, SourceIp, RawContent, Attributes
             FROM CanonicalEvents
             WHERE $query = ''
                OR RawContent COLLATE NOCASE LIKE $pattern ESCAPE '\'
@@ -94,6 +95,7 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
                OR COALESCE(UserName, '') COLLATE NOCASE LIKE $pattern ESCAPE '\'
                OR COALESCE(Device, '') COLLATE NOCASE LIKE $pattern ESCAPE '\'
                OR COALESCE(SourceIp, '') COLLATE NOCASE LIKE $pattern ESCAPE '\'
+               OR COALESCE(Attributes, '') COLLATE NOCASE LIKE $pattern ESCAPE '\'
             ORDER BY TimestampUtcTicks DESC, Id;
             """;
 
@@ -124,7 +126,8 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
                 reader.IsDBNull(8) ? null : reader.GetString(8),
                 reader.IsDBNull(9) ? null : reader.GetString(9),
                 reader.IsDBNull(10) ? null : reader.GetString(10),
-                reader.GetString(11)));
+                reader.GetString(11),
+                reader.IsDBNull(12) ? null : DeserializeAttributes(reader.GetString(12))));
         }
 
         return events;
@@ -178,7 +181,8 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
                     UserName TEXT NULL,
                     Device TEXT NULL,
                     SourceIp TEXT NULL,
-                    RawContent TEXT NOT NULL
+                    RawContent TEXT NOT NULL,
+                    Attributes TEXT NULL
                 );
                 CREATE INDEX IF NOT EXISTS IX_CanonicalEvents_TimestampUtcTicks
                     ON CanonicalEvents (TimestampUtcTicks DESC);
@@ -188,6 +192,7 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
                 );
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
+            await AddAttributesColumnIfMissingAsync(connection, cancellationToken);
             await ImportLegacyJsonLinesIfEmptyAsync(connection, cancellationToken);
             _initialized = true;
         }
@@ -196,6 +201,24 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
             _initializationGate.Release();
         }
     }
+
+    // Databases created before attributes were stored lack the column; their events keep null attributes.
+    private static async Task AddAttributesColumnIfMissingAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var check = connection.CreateCommand();
+        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('CanonicalEvents') WHERE name = 'Attributes';";
+        if ((long)(await check.ExecuteScalarAsync(cancellationToken) ?? 0L) > 0)
+        {
+            return;
+        }
+
+        await using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE CanonicalEvents ADD COLUMN Attributes TEXT NULL;";
+        await alter.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static Dictionary<string, string>? DeserializeAttributes(string json) =>
+        JsonSerializer.Deserialize<Dictionary<string, string>>(json, JsonOptions);
 
     private async Task ImportLegacyJsonLinesIfEmptyAsync(
         SqliteConnection connection,
@@ -235,10 +258,10 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
         insertCommand.CommandText = """
             INSERT OR IGNORE INTO CanonicalEvents (
                 Id, TimestampUtcTicks, OffsetTicks, SourceType, SourceName,
-                Category, Action, Result, UserName, Device, SourceIp, RawContent)
+                Category, Action, Result, UserName, Device, SourceIp, RawContent, Attributes)
             VALUES (
                 $id, $timestampUtcTicks, $offsetTicks, $sourceType, $sourceName,
-                $category, $action, $result, $userName, $device, $sourceIp, $rawContent);
+                $category, $action, $result, $userName, $device, $sourceIp, $rawContent, $attributes);
             """;
 
         foreach (var path in _legacyJsonLinesPaths)
@@ -311,5 +334,8 @@ public sealed class SqliteEventRepository : IEventRepository, IDisposable
         command.Parameters.AddWithValue("$device", (object?)item.Device ?? DBNull.Value);
         command.Parameters.AddWithValue("$sourceIp", (object?)item.SourceIp ?? DBNull.Value);
         command.Parameters.AddWithValue("$rawContent", item.RawContent);
+        command.Parameters.AddWithValue("$attributes", item.Attributes is { Count: > 0 }
+            ? JsonSerializer.Serialize(item.Attributes, JsonOptions)
+            : DBNull.Value);
     }
 }

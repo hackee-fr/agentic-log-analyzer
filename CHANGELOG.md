@@ -6,6 +6,16 @@ Desktop installers and Docker images are published from `v*` tags (see the READM
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-25
+
+### Added
+
+- **Event attributes**: every `key=value` pair of a structured log line (`port`, `status`, `error`, `destination`, `exit_code`…) is kept in `CanonicalEvent.Attributes`, stored (JSON column in SQLite, added automatically to existing databases), searchable, and listed in the event detail dialog with a filter action. Events imported earlier keep empty attributes.
+
+### Fixed
+
+- A log line that repeats a key (e.g. `attempt=1 attempt=2`) no longer fails to parse; the last value wins.
+
 ## [0.4.0] - 2026-09-25
 
 ### Added
@@ -82,7 +92,8 @@ Desktop installers and Docker images are published from `v*` tags (see the READM
 - PostgreSQL development service in Docker Compose.
 - Requirements document, development contract (`AGENTS.md`), and agent and skill contracts.
 
-[Unreleased]: https://github.com/hackee-fr/agentic-log-analyzer/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/hackee-fr/agentic-log-analyzer/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/cd61555...v0.3.0
 [0.2.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/248368c...cd61555
