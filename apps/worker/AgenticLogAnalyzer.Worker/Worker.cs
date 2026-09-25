@@ -1,16 +1,17 @@
 using AgenticLogAnalyzer.Application.Parsing;
 using AgenticLogAnalyzer.Connectors;
+using Microsoft.Extensions.Logging;
 
 namespace AgenticLogAnalyzer.Worker;
 
-public sealed class Worker(
+public sealed partial class Worker(
     ILogger<Worker> logger,
     CanonicalEventParser parser) : BackgroundService
 {
     protected override async Task ExecuteAsync(
         CancellationToken stoppingToken)
     {
-        logger.LogInformation("Agentic Log Analyzer worker started.");
+        LogWorkerStarted(logger);
 
         var connector = new SampleLogConnector();
 
@@ -18,8 +19,8 @@ public sealed class Worker(
         {
             var canonicalEvent = parser.Parse(rawLog);
 
-            logger.LogInformation(
-                "Event {EventId}: {Category}/{Action} result={Result} user={User} device={Device}",
+            LogCanonicalEvent(
+                logger,
                 canonicalEvent.Id,
                 canonicalEvent.Category,
                 canonicalEvent.Action,
@@ -30,4 +31,24 @@ public sealed class Worker(
 
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
     }
+
+    [LoggerMessage(
+        EventId = 1000,
+        Level = LogLevel.Information,
+        Message = "Agentic Log Analyzer worker started.")]
+    private static partial void LogWorkerStarted(
+        ILogger logger);
+
+    [LoggerMessage(
+        EventId = 1001,
+        Level = LogLevel.Information,
+        Message = "Event {EventId}: {Category}/{Action} result={Result} user={User} device={Device}")]
+    private static partial void LogCanonicalEvent(
+        ILogger logger,
+        Guid eventId,
+        string category,
+        string action,
+        string? result,
+        string? user,
+        string? device);
 }
