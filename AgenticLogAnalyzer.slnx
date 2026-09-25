@@ -10,4 +10,5 @@
   <Project Path="packages/correlation/AgenticLogAnalyzer.Correlation/AgenticLogAnalyzer.Correlation.csproj" />
   <Project Path="packages/agentic/AgenticLogAnalyzer.Agentic/AgenticLogAnalyzer.Agentic.csproj" />
   <Project Path="packages/llm/AgenticLogAnalyzer.Llm/AgenticLogAnalyzer.Llm.csproj" />
+  <Project Path="tests/AgenticLogAnalyzer.Tests/AgenticLogAnalyzer.Tests.csproj" />
 </Solution>
