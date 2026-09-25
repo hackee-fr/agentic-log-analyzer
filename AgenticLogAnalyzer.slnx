@@ -1,0 +1,13 @@
+<Solution>
+  <Project Path="apps/api/AgenticLogAnalyzer.Api/AgenticLogAnalyzer.Api.csproj" />
+  <Project Path="apps/worker/AgenticLogAnalyzer.Worker/AgenticLogAnalyzer.Worker.csproj" />
+  <Project Path="apps/dashboard/AgenticLogAnalyzer.Dashboard/AgenticLogAnalyzer.Dashboard.csproj" />
+  <Project Path="packages/domain/AgenticLogAnalyzer.Domain/AgenticLogAnalyzer.Domain.csproj" />
+  <Project Path="packages/application/AgenticLogAnalyzer.Application/AgenticLogAnalyzer.Application.csproj" />
+  <Project Path="packages/infrastructure/AgenticLogAnalyzer.Infrastructure/AgenticLogAnalyzer.Infrastructure.csproj" />
+  <Project Path="packages/connectors/AgenticLogAnalyzer.Connectors/AgenticLogAnalyzer.Connectors.csproj" />
+  <Project Path="packages/detection/AgenticLogAnalyzer.Detection/AgenticLogAnalyzer.Detection.csproj" />
+  <Project Path="packages/correlation/AgenticLogAnalyzer.Correlation/AgenticLogAnalyzer.Correlation.csproj" />
+  <Project Path="packages/agentic/AgenticLogAnalyzer.Agentic/AgenticLogAnalyzer.Agentic.csproj" />
+  <Project Path="packages/llm/AgenticLogAnalyzer.Llm/AgenticLogAnalyzer.Llm.csproj" />
+</Solution>
