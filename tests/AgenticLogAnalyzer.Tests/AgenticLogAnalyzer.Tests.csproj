@@ -2,6 +2,8 @@
   <PropertyGroup>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
+    <!-- Method_Scenario_Expected test names use underscores by convention. -->
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,8 +13,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\\..\\packages\\application\\AgenticLogAnalyzer.Application\\AgenticLogAnalyzer.Application.csproj" />
-    <ProjectReference Include="..\\..\\packages\\connectors\\AgenticLogAnalyzer.Connectors\\AgenticLogAnalyzer.Connectors.csproj" />
-    <ProjectReference Include="..\\..\\packages\\domain\\AgenticLogAnalyzer.Domain\\AgenticLogAnalyzer.Domain.csproj" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\fixtures\**" LinkBase="fixtures" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\packages\application\AgenticLogAnalyzer.Application\AgenticLogAnalyzer.Application.csproj" />
+    <ProjectReference Include="..\..\packages\connectors\AgenticLogAnalyzer.Connectors\AgenticLogAnalyzer.Connectors.csproj" />
+    <ProjectReference Include="..\..\packages\domain\AgenticLogAnalyzer.Domain\AgenticLogAnalyzer.Domain.csproj" />
   </ItemGroup>
 </Project>

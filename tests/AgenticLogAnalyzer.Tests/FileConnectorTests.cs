@@ -1,5 +1,6 @@
+using AgenticLogAnalyzer.Application.Parsing;
 using AgenticLogAnalyzer.Connectors;
-using Xunit;
+using AgenticLogAnalyzer.Domain.Logs;
 
 namespace AgenticLogAnalyzer.Tests;
 
@@ -17,14 +18,16 @@ public sealed class FileConnectorTests
         try
         {
             var connector = new FileConnector(path);
-            var logs = new List<string>();
+            var logs = new List<RawLog>();
 
             await foreach (var rawLog in connector.ReadAsync(CancellationToken.None))
             {
-                logs.Add(rawLog.Content);
+                logs.Add(rawLog);
             }
 
-            Assert.Equal(["first log", "second log"], logs);
+            Assert.Equal(["first log", "second log"], logs.Select(l => l.Content));
+            Assert.All(logs, l => Assert.Equal("file", l.Source));
+            Assert.All(logs, l => Assert.Equal(path, l.SourceName));
         }
         finally
         {
@@ -88,7 +91,7 @@ public sealed class FileConnectorTests
 
             var connector = new FileConnector(path);
 
-            await Assert.ThrowsAsync<OperationCanceledException>(
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 async () =>
                 {
                     await foreach (var _ in connector.ReadAsync(
@@ -101,6 +104,23 @@ public sealed class FileConnectorTests
         {
             DeleteTemporaryFile(path);
         }
+    }
+
+    [Fact]
+    public async Task ReadAsync_SampleFixture_ParsesAllLines()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "sample-pipe-log.txt");
+        var connector = new FileConnector(path);
+        var parser = new CanonicalEventParser();
+        var events = new List<CanonicalEvent>();
+
+        await foreach (var rawLog in connector.ReadAsync(CancellationToken.None))
+        {
+            events.Add(parser.Parse(rawLog));
+        }
+
+        Assert.Equal(2, events.Count);
+        Assert.Equal(["failure", "success"], events.Select(e => e.Result));
     }
 
     private static string CreateTemporaryFile(params string[] lines)

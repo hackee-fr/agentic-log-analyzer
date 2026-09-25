@@ -10,6 +10,10 @@ public sealed class FileConnector(string path) : ILogConnector
 
     public string Name => "file";
 
+    /// <remarks>
+    /// All lines of one read share the same <see cref="RawLog.ReceivedAt"/>:
+    /// the time the file was ingested, not the time each line was written.
+    /// </remarks>
     public async IAsyncEnumerable<RawLog> ReadAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -26,6 +30,7 @@ public sealed class FileConnector(string path) : ILogConnector
 
             yield return new RawLog(
                 Name,
+                _path,
                 line,
                 receivedAt);
         }

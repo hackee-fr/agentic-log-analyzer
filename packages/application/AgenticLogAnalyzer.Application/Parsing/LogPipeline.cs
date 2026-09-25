@@ -4,7 +4,7 @@ using AgenticLogAnalyzer.Domain.Logs;
 namespace AgenticLogAnalyzer.Application.Parsing;
 
 public sealed class LogPipeline(
-    CanonicalEventParser parser)
+    ILogParser parser)
 {
     public IReadOnlyCollection<CanonicalEvent> Process(
         IEnumerable<RawLog> rawLogs)

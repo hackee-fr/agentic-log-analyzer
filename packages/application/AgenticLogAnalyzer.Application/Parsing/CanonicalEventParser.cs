@@ -6,20 +6,21 @@ namespace AgenticLogAnalyzer.Application.Parsing;
 
 public sealed class CanonicalEventParser : ILogParser
 {
+    private const int FieldCount = 7;
+
     public bool CanParse(RawLog rawLog)
     {
-        return rawLog.Content.Split(
-            '|',
-            StringSplitOptions.TrimEntries).Length == 7;
+        return Split(rawLog).Length == FieldCount;
     }
 
+    /// <exception cref="FormatException">
+    /// The line does not have exactly 7 fields or its timestamp is invalid.
+    /// </exception>
     public CanonicalEvent Parse(RawLog rawLog)
     {
-        var parts = rawLog.Content.Split(
-            '|',
-            StringSplitOptions.TrimEntries);
+        var parts = Split(rawLog);
 
-        if (parts.Length != 7)
+        if (parts.Length != FieldCount)
         {
             throw new FormatException(
                 "Expected 7 pipe-delimited fields: timestamp|category|action|result|user|device|sourceIp.");
@@ -35,10 +36,10 @@ public sealed class CanonicalEventParser : ILogParser
         }
 
         return new CanonicalEvent(
-            Guid.NewGuid(),
+            Guid.CreateVersion7(timestamp),
             timestamp,
             rawLog.Source,
-            rawLog.Source,
+            rawLog.SourceName,
             parts[1],
             parts[2],
             NullIfEmpty(parts[3]),
@@ -47,6 +48,9 @@ public sealed class CanonicalEventParser : ILogParser
             NullIfEmpty(parts[6]),
             rawLog.Content);
     }
+
+    private static string[] Split(RawLog rawLog) =>
+        rawLog.Content.Split('|', StringSplitOptions.TrimEntries);
 
     private static string? NullIfEmpty(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;

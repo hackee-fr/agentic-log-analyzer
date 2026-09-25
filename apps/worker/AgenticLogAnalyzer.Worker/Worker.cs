@@ -1,32 +1,43 @@
-using AgenticLogAnalyzer.Application.Parsing;
-using AgenticLogAnalyzer.Connectors;
+using AgenticLogAnalyzer.Application.Abstractions;
 using Microsoft.Extensions.Logging;
 
 namespace AgenticLogAnalyzer.Worker;
 
 public sealed partial class Worker(
     ILogger<Worker> logger,
-    CanonicalEventParser parser) : BackgroundService
+    ILogConnector connector,
+    ILogParser parser) : BackgroundService
 {
     protected override async Task ExecuteAsync(
         CancellationToken stoppingToken)
     {
         LogWorkerStarted(logger);
 
-        var connector = new SampleLogConnector();
-
         await foreach (var rawLog in connector.ReadAsync(stoppingToken))
         {
-            var canonicalEvent = parser.Parse(rawLog);
+            if (!parser.CanParse(rawLog))
+            {
+                LogUnparseableLine(logger, rawLog.SourceName, "unexpected field count");
+                continue;
+            }
 
-            LogCanonicalEvent(
-                logger,
-                canonicalEvent.Id,
-                canonicalEvent.Category,
-                canonicalEvent.Action,
-                canonicalEvent.Result,
-                canonicalEvent.User,
-                canonicalEvent.Device);
+            try
+            {
+                var canonicalEvent = parser.Parse(rawLog);
+
+                LogCanonicalEvent(
+                    logger,
+                    canonicalEvent.Id,
+                    canonicalEvent.Category,
+                    canonicalEvent.Action,
+                    canonicalEvent.Result,
+                    canonicalEvent.User,
+                    canonicalEvent.Device);
+            }
+            catch (FormatException ex)
+            {
+                LogUnparseableLine(logger, rawLog.SourceName, ex.Message);
+            }
         }
 
         await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
@@ -51,4 +62,13 @@ public sealed partial class Worker(
         string? result,
         string? user,
         string? device);
+
+    [LoggerMessage(
+        EventId = 1002,
+        Level = LogLevel.Warning,
+        Message = "Skipped unparseable line from {SourceName}: {Reason}")]
+    private static partial void LogUnparseableLine(
+        ILogger logger,
+        string sourceName,
+        string reason);
 }
