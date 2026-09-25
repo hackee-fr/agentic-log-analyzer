@@ -8,9 +8,9 @@ import { Toaster } from "@/components/ui/sonner.tsx"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="light">
+    <ThemeProvider defaultTheme="dark" storageKey="agentic-log-analyzer-theme">
       <App />
-      <Toaster position="top-right" richColors />
+      <Toaster position="top-right" richColors theme="dark" />
     </ThemeProvider>
   </StrictMode>
 )

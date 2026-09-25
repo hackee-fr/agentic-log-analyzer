@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 import {
   Activity,
   AlertTriangle,
@@ -12,7 +12,9 @@ import {
   FileClock,
   FileSearch,
   Fingerprint,
+  FileText,
   Globe2,
+  Monitor,
   Layers3,
   LoaderCircle,
   Network,
@@ -29,8 +31,6 @@ import {
   X,
 } from "lucide-react"
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -52,6 +52,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -68,6 +69,9 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
+import { EventDetailDialog } from "@/components/event-detail-dialog"
+import { buildActivity, describeStep, type ActivityBucket } from "@/lib/activity"
 import { LogChat } from "@/components/log-chat"
 import { SettingsView } from "@/components/settings-view"
 import {
@@ -109,16 +113,39 @@ const resultTone = (result: string | null) => {
   return "neutral"
 }
 
+type ResultFilter = "all" | "failure" | "warning" | "success"
+
+const resultFilters: { id: ResultFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "failure", label: "Failures" },
+  { id: "warning", label: "Warnings" },
+  { id: "success", label: "Success" },
+]
+
+const matchesResultFilter = (event: CanonicalEvent, filter: ResultFilter) => {
+  if (filter === "all") return true
+  const tone = resultTone(event.result)
+  return filter === "failure" ? tone === "danger" : filter === "warning" ? tone === "warning" : tone === "success"
+}
+
+const readViewFromHash = (): View => {
+  const hash = window.location.hash.slice(1)
+  return navigation.some((item) => item.id === hash) ? (hash as View) : "overview"
+}
+
+const isTypingTarget = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+
 const fetchDashboardData = async () =>
   Promise.all([getEvents(), runInvestigation("", 1000)])
 
 function ResultBadge({ result }: { result: string | null }) {
   const tone = resultTone(result)
   const colors = {
-    danger: "border-rose-200 bg-rose-50 text-rose-700",
-    warning: "border-amber-200 bg-amber-50 text-amber-700",
-    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    neutral: "border-slate-200 bg-slate-50 text-slate-600",
+    danger: "border-rose-500/30 bg-rose-500/10 text-rose-400",
+    warning: "border-amber-500/30 bg-amber-500/10 text-amber-400",
+    success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+    neutral: "border-border bg-muted/40 text-foreground/70",
   }
   return (
     <Badge variant="outline" className={`rounded-full px-2.5 py-1 font-medium ${colors[tone]}`}>
@@ -130,7 +157,7 @@ function ResultBadge({ result }: { result: string | null }) {
               ? "bg-amber-500"
               : tone === "success"
                 ? "bg-emerald-500"
-                : "bg-slate-400"
+                : "bg-muted-foreground"
         }`}
       />
       {result || "event"}
@@ -141,8 +168,13 @@ function ResultBadge({ result }: { result: string | null }) {
 function App() {
   const [events, setEvents] = useState<CanonicalEvent[]>([])
   const [report, setReport] = useState<InvestigationReport | null>(null)
-  const [activeView, setActiveView] = useState<View>("overview")
+  const [activeView, setActiveViewState] = useState<View>(readViewFromHash)
   const [query, setQuery] = useState("")
+  const [resultFilter, setResultFilter] = useState<ResultFilter>("all")
+  const [selectedEvent, setSelectedEvent] = useState<CanonicalEvent | null>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
+  const mobileSearchInput = useRef<HTMLInputElement>(null)
+  const mobileNav = useRef<HTMLElement>(null)
   const [connected, setConnected] = useState(false)
   const [loading, setLoading] = useState(true)
   const [investigating, setInvestigating] = useState(false)
@@ -151,6 +183,52 @@ function App() {
   const [fileDropActive, setFileDropActive] = useState(false)
   const [content, setContent] = useState("")
   const [source, setSource] = useState("manual-import")
+
+  // The active view lives in the URL hash so reloads, links and the back button keep it.
+  const setActiveView = useCallback((view: View) => {
+    setActiveViewState(view)
+    if (window.location.hash !== `#${view}`) window.history.pushState(null, "", `#${view}`)
+    window.scrollTo({ top: 0 })
+  }, [])
+
+  useEffect(() => {
+    const onPopState = () => setActiveViewState(readViewFromHash())
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
+
+  // Keep the active tab visible in the horizontally scrolling mobile navigation.
+  useEffect(() => {
+    mobileNav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "center" })
+  }, [activeView])
+
+  // "/" focuses the search box, like most log and code search tools.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return
+      const input = searchInput.current?.offsetParent ? searchInput.current : mobileSearchInput.current
+      if (!input) return
+      event.preventDefault()
+      input.focus()
+      input.select()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
+
+  const onSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      setQuery("")
+      event.currentTarget.blur()
+    }
+    if (event.key === "Enter" && activeView !== "events") setActiveView("events")
+  }
+
+  const showEvents = (filter: ResultFilter = "all", nextQuery?: string) => {
+    setResultFilter(filter)
+    if (nextQuery !== undefined) setQuery(nextQuery)
+    setActiveView("events")
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -190,7 +268,7 @@ function App() {
     }
   }, [])
 
-  const visibleEvents = useMemo(() => {
+  const searchedEvents = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase()
     if (!normalized) return events
     return events.filter((event) =>
@@ -207,24 +285,22 @@ function App() {
     )
   }, [events, query])
 
-  const activityData = useMemo(() => {
-    const buckets = new Map<string, { label: string; events: number; failures: number; order: number }>()
-    for (const event of events) {
-      const date = new Date(event.timestamp)
-      date.setSeconds(0, 0)
-      const key = date.toISOString()
-      const bucket = buckets.get(key) ?? {
-        label: formatShortTime(event.timestamp),
-        events: 0,
-        failures: 0,
-        order: date.getTime(),
-      }
-      bucket.events += 1
-      if (resultTone(event.result) === "danger") bucket.failures += 1
-      buckets.set(key, bucket)
+  const visibleEvents = useMemo(
+    () => searchedEvents.filter((event) => matchesResultFilter(event, resultFilter)),
+    [searchedEvents, resultFilter],
+  )
+
+  const resultCounts = useMemo(() => {
+    const counts: Record<ResultFilter, number> = { all: searchedEvents.length, failure: 0, warning: 0, success: 0 }
+    for (const event of searchedEvents) {
+      if (matchesResultFilter(event, "failure")) counts.failure += 1
+      else if (matchesResultFilter(event, "warning")) counts.warning += 1
+      else if (matchesResultFilter(event, "success")) counts.success += 1
     }
-    return [...buckets.values()].sort((a, b) => a.order - b.order).slice(-24)
-  }, [events])
+    return counts
+  }, [searchedEvents])
+
+  const activity = useMemo(() => buildActivity(events), [events])
 
   const categoryData = useMemo(() => {
     const counts = new Map<string, number>()
@@ -336,30 +412,32 @@ function App() {
   }[activeView]
 
   return (
-    <div className="min-h-screen bg-[#f5f7fb] text-slate-900">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-slate-800 bg-[#101828] text-slate-300 lg:flex">
+    <div className="min-h-screen bg-background text-foreground">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-border bg-background text-muted-foreground/60 lg:flex">
         <div className="flex h-[76px] items-center gap-3 px-6">
-          <div className="grid size-9 place-items-center rounded-xl bg-blue-500 text-white shadow-lg shadow-blue-950/30">
+          <div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
             <Shield className="size-[19px]" strokeWidth={2.2} />
           </div>
           <div>
-            <div className="text-[14px] font-semibold tracking-tight text-white">Agentic</div>
-            <div className="text-[10px] font-medium tracking-[0.16em] text-slate-500 uppercase">Log intelligence</div>
+            <div className="text-[14px] font-semibold tracking-tight text-foreground">Agentic</div>
+            <div className="text-[10px] font-medium tracking-[0.16em] text-muted-foreground uppercase">Log intelligence</div>
           </div>
         </div>
 
-        <div className="px-4 pt-5 pb-2 text-[10px] font-semibold tracking-[0.15em] text-slate-500 uppercase">
+        <div className="px-4 pt-5 pb-2 text-[10px] font-semibold tracking-[0.15em] text-muted-foreground uppercase">
           Workspace
         </div>
         <nav className="space-y-1 px-3" aria-label="Navigation principale">
           {navigation.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
+              type="button"
               onClick={() => setActiveView(id)}
-              className={`flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] font-medium transition ${
+              aria-current={activeView === id ? "page" : undefined}
+              className={`flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] font-medium transition focus-visible:ring-2 focus-visible:ring-blue-400/60 focus-visible:outline-none ${
                 activeView === id
-                  ? "bg-blue-500/15 text-blue-300 ring-1 ring-blue-400/15"
-                  : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-100"
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
               <Icon className="size-[17px]" />
@@ -373,87 +451,89 @@ function App() {
           ))}
         </nav>
 
-        <div className="mt-8 px-4 pb-2 text-[10px] font-semibold tracking-[0.15em] text-slate-500 uppercase">
+        <div className="mt-8 px-4 pb-2 text-[10px] font-semibold tracking-[0.15em] text-muted-foreground uppercase">
           System
         </div>
-        <div className="mx-3 rounded-xl border border-slate-800 bg-slate-900/50 p-3.5">
-          <div className="flex items-center justify-between text-[12px] font-medium text-slate-200">
+        <div className="mx-3 rounded-xl border border-border bg-muted/30 p-3.5">
+          <div className="flex items-center justify-between text-[12px] font-medium text-foreground">
             <span className="flex items-center gap-2"><Activity className="size-3.5 text-emerald-400" /> API status</span>
             <span className={`size-2 rounded-full ${connected ? "bg-emerald-400" : "bg-rose-400"}`} />
           </div>
-          <p className="mt-2 text-[11px] text-slate-500">{connected ? "Connected · localhost:5080" : "Waiting for API"}</p>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <p className="mt-2 text-[11px] text-muted-foreground">{connected ? "Connected · localhost:5080" : "Waiting for API"}</p>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
             <div className={`h-full rounded-full transition-all ${connected ? "w-full bg-emerald-400" : "w-1/4 bg-rose-400"}`} />
           </div>
         </div>
 
         <div className="mt-auto p-3">
           <div className="flex w-full items-center gap-3 rounded-lg p-2.5 text-left">
-            <div className="grid size-8 place-items-center rounded-full bg-slate-700 text-xs font-semibold text-slate-100">TA</div>
+            <div className="grid size-8 place-items-center rounded-full bg-muted text-xs font-semibold text-foreground">TA</div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-xs font-medium text-slate-200">Security analyst</div>
-              <div className="text-[10px] text-slate-500">Local workspace</div>
+              <div className="truncate text-xs font-medium text-foreground">Security analyst</div>
+              <div className="text-[10px] text-muted-foreground">Local workspace</div>
             </div>
           </div>
         </div>
       </aside>
 
       <div className="min-h-screen lg:pl-[248px]">
-        <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-slate-200/80 bg-white/90 px-5 backdrop-blur-xl sm:px-8">
+        <header className="sticky top-0 z-20 flex h-[68px] items-center justify-between border-b border-border bg-background/80 px-5 backdrop-blur-xl sm:px-8">
           <div className="flex items-center gap-3">
-            <div className="grid size-8 place-items-center rounded-lg bg-blue-600 text-white lg:hidden"><Shield className="size-4" /></div>
-            <div className="hidden text-xs text-slate-400 sm:block">Workspace <ChevronRight className="mx-1 inline size-3" /></div>
-            <div className="text-[13px] font-semibold text-slate-800">{viewTitle}</div>
+            <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground lg:hidden"><Shield className="size-4" /></div>
+            <div className="hidden text-xs text-muted-foreground sm:block">Workspace <ChevronRight className="mx-1 inline size-3" /></div>
+            <div className="text-[13px] font-semibold text-foreground">{viewTitle}</div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="relative hidden w-[250px] md:block">
-              <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-slate-400" />
+              <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
+                ref={searchInput}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search events..."
-                aria-label="Search events"
-                className="h-9 border-slate-200 bg-slate-50 pr-9 pl-9 text-xs shadow-none focus-visible:bg-white"
+                onKeyDown={onSearchKeyDown}
+                placeholder="Search events…"
+                aria-label="Search events, users or IPs"
+                aria-keyshortcuts="/"
+                className="h-9 border-border bg-muted/40 pr-9 pl-9 text-xs shadow-none focus-visible:bg-card"
               />
-              {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700"><X className="size-3.5" /></button>}
+              {query
+                ? <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="absolute top-1/2 right-2 grid size-6 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground/90"><X className="size-3.5" /></button>
+                : <kbd className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 rounded border border-border bg-card px-1.5 font-mono text-[10px] text-muted-foreground">/</kbd>}
             </div>
-            <Button variant="ghost" size="icon" className="relative text-slate-500" aria-label="Open investigations" onClick={() => setActiveView("investigations")}>
+            <Button variant="ghost" size="icon" className="relative text-muted-foreground" aria-label={detectionCount > 0 ? `${detectionCount} detection(s) to review` : "Open investigations"} title={detectionCount > 0 ? `${detectionCount} detection(s) to review` : "No detections"} onClick={() => setActiveView("investigations")}>
               <Bell className="size-[17px]" />
-              {detectionCount > 0 && <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-rose-500 ring-2 ring-white" />}
+              {detectionCount > 0 && <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-rose-500 ring-2 ring-background" />}
             </Button>
             <Separator orientation="vertical" className="mx-1 hidden h-6 sm:block" />
-            <Button variant="outline" className="h-9 gap-2 border-slate-200 bg-white px-3 text-xs shadow-sm" onClick={() => void refresh()} disabled={loading}>
+            <Button variant="outline" className="h-9 gap-2 border-border bg-card px-3 text-xs shadow-sm" onClick={() => void refresh()} disabled={loading}>
               <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
           </div>
         </header>
 
-        <div className="border-b border-slate-200 bg-white px-3 py-2 lg:hidden">
-          <nav className="flex gap-1 overflow-x-auto">
+        <div className="border-b border-border bg-card px-3 py-2 lg:hidden">
+          <nav ref={mobileNav} className="flex gap-1 overflow-x-auto">
             {navigation.map(({ id, label, icon: Icon }) => (
-              <button key={id} onClick={() => setActiveView(id)} className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-xs ${activeView === id ? "bg-blue-50 font-semibold text-blue-700" : "text-slate-500"}`}>
+              <button key={id} type="button" onClick={() => setActiveView(id)} aria-current={activeView === id ? "page" : undefined} className={`flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-xs transition focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:outline-none ${activeView === id ? "bg-muted font-semibold text-foreground" : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"}`}>
                 <Icon className="size-3.5" />{label}
               </button>
             ))}
           </nav>
         </div>
-        <div className="border-b border-slate-200 bg-white px-4 pb-3 md:hidden">
+        <div className="border-b border-border bg-card px-4 pb-3 md:hidden">
           <div className="relative">
-            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search events, users, IPs..." aria-label="Search events" className="h-10 border-slate-200 bg-slate-50 pr-10 pl-10 text-sm" />
-            {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="absolute top-1/2 right-2 grid size-7 -translate-y-1/2 place-items-center rounded text-slate-400 hover:bg-slate-200/70 hover:text-slate-700"><X className="size-4" /></button>}
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input ref={mobileSearchInput} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={onSearchKeyDown} placeholder="Search events, users, IPs..." aria-label="Search events" className="h-10 border-border bg-muted/40 pr-10 pl-10 text-sm" />
+            {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")} className="absolute top-1/2 right-2 grid size-7 -translate-y-1/2 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground/90"><X className="size-4" /></button>}
           </div>
         </div>
 
         <main className="mx-auto max-w-[1500px] p-5 sm:p-8">
           <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
             <div>
-              <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-slate-400">
-                <span>Security operations</span><ChevronRight className="size-3" /><span className="text-slate-500">Live workspace</span>
-              </div>
-              <h1 className="text-[25px] font-semibold tracking-[-0.04em] text-slate-900">{viewTitle}</h1>
-              <p className="mt-1 text-[13px] text-slate-500">
+              <h1 className="text-[25px] font-semibold tracking-[-0.04em] text-foreground">{viewTitle}</h1>
+              <p className="mt-1 text-[13px] text-muted-foreground">
                 {activeView === "overview" && "Monitor activity, detections and investigation workflows."}
                 {activeView === "assistant" && "Ask questions in plain language; answers cite the events they rely on."}
                 {activeView === "investigations" && "Evidence-led analysis from your deterministic agent pipeline."}
@@ -465,47 +545,47 @@ function App() {
             <div className="flex flex-wrap items-center gap-2">
               <Dialog open={importOpen} onOpenChange={setImportOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" className="h-9 gap-2 border-slate-200 bg-white text-xs shadow-sm">
+                  <Button variant="outline" className="h-9 gap-2 border-border bg-card text-xs shadow-sm">
                     <Upload className="size-3.5" /> Import logs
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-xl">
+                <DialogContent className="sm:max-w-xl">
                   <DialogHeader>
                     <DialogTitle>Import log events</DialogTitle>
-                    <DialogDescription>Import pipe-delimited or timestamp / level / component log lines. Invalid rows are reported after processing.</DialogDescription>
+                    <DialogDescription>Import pipe-delimited or <code className="font-mono text-[11px]">timestamp LEVEL [component] message</code> lines. Re-importing the same file does not create duplicates; invalid rows are reported after processing.</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-2">
                     <label
                       onDragOver={(event) => { event.preventDefault(); setFileDropActive(true) }}
                       onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFileDropActive(false) }}
                       onDrop={(event) => { event.preventDefault(); setFileDropActive(false); void importFile(event.dataTransfer.files[0]) }}
-                      className={`relative flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-5 py-7 text-center transition ${fileDropActive ? "border-blue-500 bg-blue-50 ring-2 ring-blue-500/10" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/40"}`}
+                      className={`relative flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed px-5 py-7 text-center transition ${fileDropActive ? "border-blue-500 bg-blue-500/10 ring-2 ring-blue-500/10" : "border-foreground/20 bg-muted/40 hover:border-blue-500/50 hover:bg-blue-500/5"}`}
                     >
-                      <Upload className="mb-2 size-5 text-slate-400" />
-                      <span className="text-sm font-medium text-slate-700">{content ? "Choose another file" : "Choose a .log or .txt file"}</span>
-                      <span className="mt-1 text-xs text-slate-400">or drop a file here</span>
+                      <Upload className="mb-2 size-5 text-muted-foreground" />
+                      <span className="text-sm font-medium text-foreground/90">{content ? "Choose another file" : "Choose a .log or .txt file"}</span>
+                      <span className="mt-1 text-xs text-muted-foreground">or drop a file here</span>
                       <input type="file" accept=".log,.txt,text/plain" className="sr-only" onChange={(event) => { void importFile(event.target.files?.[0]); event.currentTarget.value = "" }} />
                     </label>
-                    {content && <div className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs"><span className="truncate font-medium text-blue-800">{source} <span className="font-normal text-blue-600">· {content.split(/\r?\n/).filter((line) => line.trim()).length.toLocaleString("en-US")} lines</span></span><button type="button" onClick={() => { setContent(""); setSource("manual-import") }} className="ml-2 shrink-0 rounded px-2 py-1 text-blue-700 hover:bg-blue-100">Clear</button></div>}
+                    {content && <div className="flex items-center justify-between rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs"><span className="truncate font-medium text-blue-300">{source} <span className="font-normal text-blue-400">· {content.split(/\r?\n/).filter((line) => line.trim()).length.toLocaleString("en-US")} lines</span></span><button type="button" onClick={() => { setContent(""); setSource("manual-import") }} className="ml-2 shrink-0 rounded px-2 py-1 text-blue-400 hover:bg-blue-500/15">Clear</button></div>}
                     <div className="grid gap-2">
-                      <label htmlFor="source-name" className="text-xs font-medium text-slate-600">Source name</label>
+                      <label htmlFor="source-name" className="text-xs font-medium text-foreground/70">Source name</label>
                       <Input id="source-name" value={source} onChange={(event) => setSource(event.target.value)} placeholder="manual-import" />
                     </div>
                     <div className="grid gap-2">
-                      <label htmlFor="log-content" className="text-xs font-medium text-slate-600">Or paste log lines</label>
-                      <textarea id="log-content" value={content} onChange={(event) => setContent(event.target.value)} rows={7} placeholder="2026-09-25T17:00:30Z WARN [security] Failed authentication attempt username=admin source=10.10.20.15" className="resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-5 outline-none placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-blue-500/20" />
+                      <label htmlFor="log-content" className="text-xs font-medium text-foreground/70">Or paste log lines</label>
+                      <textarea id="log-content" value={content} onChange={(event) => setContent(event.target.value)} rows={7} placeholder="2026-09-25T17:00:30Z WARN [security] Failed authentication attempt username=admin source=10.10.20.15" className="resize-y rounded-lg border border-border bg-card px-3 py-2 font-mono text-xs leading-5 outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-blue-500/20" />
                     </div>
                   </div>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
-                    <Button onClick={() => void submitImport()} disabled={importing} className="gap-2">
+                    <Button onClick={() => void submitImport()} disabled={importing || !content.trim()} className="gap-2">
                       {importing ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />}
                       {importing ? "Importing..." : "Import events"}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-              <Button onClick={() => void startInvestigation()} disabled={investigating} className="h-9 gap-2 bg-blue-600 px-3.5 text-xs text-white shadow-sm shadow-blue-900/15 hover:bg-blue-700">
+              <Button onClick={() => void startInvestigation()} disabled={investigating} className="h-9 gap-2 bg-primary px-3.5 text-xs text-primary-foreground hover:bg-primary/90">
                 {investigating ? <LoaderCircle className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
                 {investigating ? "Investigating..." : "New investigation"}
               </Button>
@@ -513,34 +593,59 @@ function App() {
           </div>
 
           {!connected && !loading && (
-            <div className="mb-6 flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            <div className="mb-6 flex items-center gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
               <AlertTriangle className="size-4 shrink-0" />
-              <span>API unreachable. Start the Agentic Log Analyzer API on <code className="font-mono">localhost:5080</code>, then refresh.</span>
+              <span className="flex-1">API unreachable. Start the Agentic Log Analyzer API on <code className="font-mono">localhost:5080</code>, then retry.</span>
+              <Button variant="outline" size="sm" onClick={() => void refresh()} className="h-8 gap-1.5 border-rose-500/30 bg-card text-xs text-rose-400 hover:bg-rose-500/15"><RefreshCw className="size-3.5" />Retry</Button>
             </div>
           )}
 
-          {activeView === "overview" && (
-            <OverviewView
-              events={events}
-              filteredEvents={visibleEvents}
-              report={report}
-              activityData={activityData}
-              categoryData={categoryData}
-              loading={loading}
-              failureCount={failureCount}
-              sourceCount={sources.length}
-              onInvestigate={() => void startInvestigation()}
-              onShowEvents={() => setActiveView("events")}
-              onShowInvestigations={() => setActiveView("investigations")}
-            />
-          )}
           <div className={activeView === "assistant" ? undefined : "hidden"}><LogChat /></div>
-          {activeView === "investigations" && <InvestigationView report={report} loading={loading || investigating} />}
-          {activeView === "events" && <EventsView events={visibleEvents} loading={loading} query={query} />}
-          {activeView === "sources" && <SourcesView sources={sources} loading={loading} onDelete={removeEvents} />}
-          {activeView === "settings" && <SettingsView apiConnected={connected} eventCount={events.length} detectionCount={detectionCount} />}
+          {activeView !== "assistant" && (
+            <div key={activeView} className="animate-in duration-300 fade-in-0 slide-in-from-bottom-1">
+              {activeView === "overview" && (
+                <OverviewView
+                  events={events}
+                  recentEvents={searchedEvents}
+                  report={report}
+                  activity={activity.buckets}
+                  activityStep={activity.step}
+                  categoryData={categoryData}
+                  loading={loading}
+                  connected={connected}
+                  failureCount={failureCount}
+                  sourceCount={sources.length}
+                  onImport={() => setImportOpen(true)}
+                  onShowEvents={showEvents}
+                  onShowView={setActiveView}
+                  onSelectEvent={setSelectedEvent}
+                />
+              )}
+              {activeView === "investigations" && <InvestigationView report={report} loading={loading || investigating} onInvestigate={() => void startInvestigation()} onSelectEvent={setSelectedEvent} onFilterEntity={(value) => showEvents("all", value)} />}
+              {activeView === "events" && (
+                <EventsView
+                  events={visibleEvents}
+                  loading={loading}
+                  query={query}
+                  resultFilter={resultFilter}
+                  resultCounts={resultCounts}
+                  onResultFilterChange={setResultFilter}
+                  onClearFilters={() => { setQuery(""); setResultFilter("all") }}
+                  onSelectEvent={setSelectedEvent}
+                />
+              )}
+              {activeView === "sources" && <SourcesView sources={sources} loading={loading} onDelete={removeEvents} onShowSource={(name) => showEvents("all", name)} onImport={() => setImportOpen(true)} />}
+              {activeView === "settings" && <SettingsView apiConnected={connected} eventCount={events.length} detectionCount={detectionCount} />}
+            </div>
+          )}
 
-          <footer className="mt-10 flex flex-col justify-between gap-2 border-t border-slate-200 pt-5 text-[11px] text-slate-400 sm:flex-row">
+          <EventDetailDialog
+            event={selectedEvent}
+            onOpenChange={(open) => { if (!open) setSelectedEvent(null) }}
+            onFilter={(value) => { setSelectedEvent(null); showEvents("all", value) }}
+          />
+
+          <footer className="mt-10 flex flex-col justify-between gap-2 border-t border-border pt-5 text-[11px] text-muted-foreground sm:flex-row">
             <span>Agentic Log Analyzer <span className="mx-1.5">·</span> Deterministic engine</span>
             <span className="flex items-center gap-2"><span className={`size-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-rose-500"}`} />{connected ? "All systems operational" : "API connection required"}<span className="mx-1.5">·</span>Local persistent storage</span>
           </footer>
@@ -552,177 +657,167 @@ function App() {
 
 function OverviewView({
   events,
-  filteredEvents,
+  recentEvents,
   report,
-  activityData,
+  activity,
+  activityStep,
   categoryData,
   loading,
+  connected,
   failureCount,
   sourceCount,
-  onInvestigate,
+  onImport,
   onShowEvents,
-  onShowInvestigations,
+  onShowView,
+  onSelectEvent,
 }: {
   events: CanonicalEvent[]
-  filteredEvents: CanonicalEvent[]
+  recentEvents: CanonicalEvent[]
   report: InvestigationReport | null
-  activityData: { label: string; events: number; failures: number; order: number }[]
+  activity: ActivityBucket[]
+  activityStep: number
   categoryData: { name: string; count: number }[]
   loading: boolean
+  connected: boolean
   failureCount: number
   sourceCount: number
-  onInvestigate: () => void
-  onShowEvents: () => void
-  onShowInvestigations: () => void
+  onImport: () => void
+  onShowEvents: (filter?: ResultFilter) => void
+  onShowView: (view: View) => void
+  onSelectEvent: (event: CanonicalEvent) => void
 }) {
+  if (!loading && connected && events.length === 0) return <OnboardingPanel onImport={onImport} />
+
+  const detections = report?.detections.length ?? 0
   const stats = [
-    { label: "Events indexed", value: events.length.toLocaleString("en-US"), note: "Across all log sources", icon: Database, tone: "blue" },
-    { label: "Detections", value: String(report?.detections.length ?? 0), note: report?.detections.length ? "Require analyst review" : "No active detections", icon: ShieldAlert, tone: "rose" },
-    { label: "Failed events", value: String(failureCount), note: "Normalized failures", icon: AlertTriangle, tone: "amber" },
-    { label: "Log sources", value: String(sourceCount), note: "Distinct source names", icon: Network, tone: "violet" },
+    { label: "Events indexed", value: events.length.toLocaleString("en-US"), note: "Open the event stream", icon: Database, tone: "blue", onClick: () => onShowEvents("all") },
+    { label: "Detections", value: String(detections), note: detections ? "Require analyst review" : "No active detections", icon: ShieldAlert, tone: "rose", onClick: () => onShowView("investigations") },
+    { label: "Failed events", value: String(failureCount), note: "Show failures only", icon: AlertTriangle, tone: "amber", onClick: () => onShowEvents("failure") },
+    { label: "Log sources", value: String(sourceCount), note: "Manage imported sources", icon: Network, tone: "violet", onClick: () => onShowView("sources") },
   ]
   const toneClass: Record<string, string> = {
-    blue: "bg-blue-50 text-blue-600",
-    rose: "bg-rose-50 text-rose-600",
-    amber: "bg-amber-50 text-amber-600",
-    violet: "bg-violet-50 text-violet-600",
+    blue: "bg-blue-500/10 text-blue-400",
+    rose: "bg-rose-500/10 text-rose-400",
+    amber: "bg-amber-500/10 text-amber-400",
+    violet: "bg-violet-500/10 text-violet-400",
   }
+  const chartData = activity.map((bucket) => ({ ...bucket, other: bucket.events - bucket.failures - bucket.warnings }))
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-2xl bg-[#132342] px-6 py-6 text-white shadow-sm sm:px-8 sm:py-7">
-        <div className="absolute -top-24 right-14 size-64 rounded-full border border-white/5" />
-        <div className="absolute -top-10 right-24 size-44 rounded-full border border-white/5" />
-        <div className="absolute right-0 bottom-0 h-40 w-1/2 bg-gradient-to-l from-blue-500/15 to-transparent" />
-        <div className="relative z-10 flex flex-col justify-between gap-5 md:flex-row md:items-center">
-          <div className="max-w-2xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-300/20 bg-blue-400/10 px-2.5 py-1 text-[10px] font-medium tracking-wide text-blue-200">
-              <Sparkles className="size-3" /> DETERMINISTIC INVESTIGATION PIPELINE
-            </div>
-            <h2 className="text-xl font-semibold tracking-tight sm:text-[22px]">Find the signal in your logs.</h2>
-            <p className="mt-1.5 max-w-xl text-[12px] leading-5 text-slate-300 sm:text-[13px]">
-              Four specialized agents search, detect, correlate and report with evidence linked to your events.
-            </p>
-          </div>
-          <Button onClick={onInvestigate} className="relative z-10 h-10 shrink-0 gap-2 bg-white px-4 text-xs font-semibold text-blue-900 hover:bg-blue-50">
-            <Sparkles className="size-3.5" /> Start investigation <ArrowRight className="size-3.5" />
-          </Button>
-        </div>
-      </section>
-
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map(({ label, value, note, icon: Icon, tone }) => (
-          <Card key={label} className="gap-0 rounded-xl border-slate-200/80 py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-            <CardContent className="p-4 sm:p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-[11px] font-medium text-slate-500">{label}</div>
-                  <div className="mt-2 text-[26px] leading-none font-semibold tracking-[-0.04em] text-slate-900">{loading ? "—" : value}</div>
-                </div>
-                <div className={`grid size-9 place-items-center rounded-lg ${toneClass[tone]}`}><Icon className="size-[17px]" /></div>
+        {stats.map(({ label, value, note, icon: Icon, tone, onClick }) => (
+          <button
+            key={label}
+            type="button"
+            onClick={onClick}
+            className="group rounded-xl border border-border bg-card p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,.03)] transition hover:-translate-y-0.5 hover:border-blue-500/30 hover:shadow-[0_6px_18px_rgba(15,23,42,.06)] focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:outline-none sm:p-5"
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
+                {loading ? <Skeleton className="mt-2 h-[26px] w-16" /> : <div className="mt-2 text-[26px] leading-none font-semibold tracking-[-0.04em] text-foreground tabular-nums">{value}</div>}
               </div>
-              <div className="mt-3 flex items-center gap-1.5 text-[10px] text-slate-400"><span className="text-slate-500">{note}</span></div>
-            </CardContent>
-          </Card>
+              <div className={`grid size-9 place-items-center rounded-lg ${toneClass[tone]}`}><Icon className="size-[17px]" /></div>
+            </div>
+            <div className="mt-3 flex items-center gap-1 text-[10px] text-muted-foreground transition group-hover:text-blue-400">
+              {note}<ArrowRight className="size-3 opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
+            </div>
+          </button>
         ))}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.8fr)]">
-        <Card className="rounded-xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-          <CardHeader className="flex-row items-start justify-between space-y-0 px-5 pt-5 pb-1">
-            <div>
-              <CardTitle className="text-[13px] font-semibold text-slate-800">Event activity</CardTitle>
-              <CardDescription className="mt-1 text-[11px]">Ingested events over time</CardDescription>
-            </div>
-            <div className="flex items-center gap-3 text-[10px] text-slate-500">
-              <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-blue-500" />Events</span>
-              <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-rose-400" />Failures</span>
-            </div>
+        <Card className="rounded-xl border-border shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+          <CardHeader className="px-5 pt-1">
+            <CardTitle className="text-[13px] font-semibold text-foreground">Event activity</CardTitle>
+            <CardDescription className="text-[11px]">Events per {describeStep(activityStep)}, by outcome</CardDescription>
+            <CardAction className="flex items-center gap-3 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#1e3160]" />Other</span>
+              <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-amber-400" />Warnings</span>
+              <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-rose-500" />Failures</span>
+            </CardAction>
           </CardHeader>
-          <CardContent className="px-2 pt-4 pb-4 sm:px-4">
-            {activityData.length ? (
+          <CardContent className="px-2 pb-2 sm:px-4">
+            {loading ? <Skeleton className="h-[248px] w-full" /> : chartData.length ? (
               <ResponsiveContainer width="100%" height={248}>
-                <AreaChart data={activityData} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="eventFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" stopOpacity={0.2} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#eef1f5" strokeDasharray="3 5" vertical={false} />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#94a3b8", fontSize: 10 }} minTickGap={24} />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                  <Tooltip contentStyle={{ borderRadius: 10, borderColor: "#e2e8f0", fontSize: 11, boxShadow: "0 8px 24px #0f172a12" }} />
-                  <Area type="monotone" dataKey="events" name="Events" stroke="#3b82f6" strokeWidth={2} fill="url(#eventFill)" activeDot={{ r: 4, fill: "#2563eb" }} />
-                  <Area type="monotone" dataKey="failures" name="Failures" stroke="#fb7185" strokeWidth={1.6} fill="transparent" activeDot={{ r: 3, fill: "#f43f5e" }} />
-                </AreaChart>
+                <BarChart data={chartData} margin={{ top: 8, right: 12, left: -16, bottom: 0 }} barCategoryGap="18%">
+                  <CartesianGrid stroke="#111a30" strokeDasharray="3 5" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#6b7a99", fontSize: 10 }} minTickGap={24} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#6b7a99", fontSize: 10 }} />
+                  <Tooltip cursor={{ fill: "#ffffff0d" }} contentStyle={{ borderRadius: 10, borderColor: "#1a2542", backgroundColor: "#08101f", color: "#e6ecf7", fontSize: 11, boxShadow: "0 8px 24px #0f172a12" }} />
+                  <Bar dataKey="other" name="Other" stackId="events" fill="#1e3160" />
+                  <Bar dataKey="warnings" name="Warnings" stackId="events" fill="#fbbf24" />
+                  <Bar dataKey="failures" name="Failures" stackId="events" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                </BarChart>
               </ResponsiveContainer>
             ) : (
-              <ChartEmpty loading={loading} message="Import logs to see event activity." />
+              <ChartEmpty message="Import logs to see event activity." />
             )}
           </CardContent>
         </Card>
 
-        <Card className="rounded-xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-          <CardHeader className="px-5 pt-5 pb-1">
-            <CardTitle className="text-[13px] font-semibold text-slate-800">Events by category</CardTitle>
-            <CardDescription className="mt-1 text-[11px]">Top categories in your dataset</CardDescription>
+        <Card className="rounded-xl border-border shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+          <CardHeader className="px-5 pt-1">
+            <CardTitle className="text-[13px] font-semibold text-foreground">Events by category</CardTitle>
+            <CardDescription className="text-[11px]">Top categories in your dataset</CardDescription>
           </CardHeader>
-          <CardContent className="px-2 pt-4 pb-5">
-            {categoryData.length ? (
+          <CardContent className="px-2 pb-2">
+            {loading ? <Skeleton className="h-[248px] w-full" /> : categoryData.length ? (
               <ResponsiveContainer width="100%" height={248}>
                 <BarChart data={categoryData} layout="vertical" margin={{ top: 4, right: 18, left: 12, bottom: 0 }}>
-                  <CartesianGrid stroke="#eef1f5" strokeDasharray="3 5" horizontal={false} />
-                  <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                  <YAxis type="category" dataKey="name" width={80} tickLine={false} axisLine={false} tick={{ fill: "#64748b", fontSize: 10 }} />
-                  <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: 10, borderColor: "#e2e8f0", fontSize: 11 }} />
-                  <Bar dataKey="count" name="Events" fill="#5b8def" radius={[0, 5, 5, 0]} barSize={16} />
+                  <CartesianGrid stroke="#111a30" strokeDasharray="3 5" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#6b7a99", fontSize: 10 }} />
+                  <YAxis type="category" dataKey="name" width={80} tickLine={false} axisLine={false} tick={{ fill: "#8b9ab8", fontSize: 10 }} />
+                  <Tooltip cursor={{ fill: "#ffffff0d" }} contentStyle={{ borderRadius: 10, borderColor: "#1a2542", backgroundColor: "#08101f", color: "#e6ecf7", fontSize: 11 }} />
+                  <Bar dataKey="count" name="Events" fill="#60a5fa" radius={[0, 5, 5, 0]} barSize={16} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <ChartEmpty loading={loading} message="Category distribution appears after ingestion." />
+              <ChartEmpty message="Category distribution appears after ingestion." />
             )}
           </CardContent>
         </Card>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.8fr)]">
-        <Card className="gap-0 overflow-hidden rounded-xl border-slate-200/80 py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-          <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-slate-100 px-5 py-4">
-            <div>
-              <CardTitle className="text-[13px] font-semibold text-slate-800">Recent events</CardTitle>
-              <CardDescription className="mt-1 text-[11px]">Latest normalized activity</CardDescription>
-            </div>
-            <Button variant="ghost" size="sm" onClick={onShowEvents} className="h-8 gap-1 px-2 text-[11px] text-blue-700">View all <ArrowRight className="size-3" /></Button>
+        <Card className="gap-0 overflow-hidden rounded-xl border-border py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+          <CardHeader className="border-b border-border px-5 py-4">
+            <CardTitle className="text-[13px] font-semibold text-foreground">Recent events</CardTitle>
+            <CardDescription className="text-[11px]">Latest normalized activity · click a row for details</CardDescription>
+            <CardAction>
+              <Button variant="ghost" size="sm" onClick={() => onShowEvents("all")} className="h-8 gap-1 px-2 text-[11px] text-blue-400">View all <ArrowRight className="size-3" /></Button>
+            </CardAction>
           </CardHeader>
-          <EventTable events={filteredEvents.slice(0, 6)} loading={loading} compact />
+          <EventTable events={recentEvents.slice(0, 6)} loading={loading} compact onSelect={onSelectEvent} />
         </Card>
 
-        <Card className="gap-0 rounded-xl border-slate-200/80 py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-          <CardHeader className="flex-row items-center justify-between space-y-0 px-5 pt-5 pb-3">
-            <div>
-              <CardTitle className="text-[13px] font-semibold text-slate-800">Detection queue</CardTitle>
-              <CardDescription className="mt-1 text-[11px]">Rule-based signals for review</CardDescription>
-            </div>
-            <Badge variant="secondary" className="bg-slate-100 text-[10px] text-slate-600">{report?.detections.length ?? 0} total</Badge>
+        <Card className="gap-0 rounded-xl border-border py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+          <CardHeader className="px-5 pt-5 pb-3">
+            <CardTitle className="text-[13px] font-semibold text-foreground">Detection queue</CardTitle>
+            <CardDescription className="text-[11px]">Rule-based signals for review</CardDescription>
+            <CardAction><Badge variant="secondary" className="bg-muted text-[10px] text-foreground/70">{detections} total</Badge></CardAction>
           </CardHeader>
           <CardContent className="space-y-3 px-5 pt-1 pb-5">
-            {report?.detections.length ? report.detections.slice(0, 3).map((detection) => (
-              <button key={detection.ruleId + detection.evidenceEventIds[0]} onClick={onShowInvestigations} className="w-full rounded-lg border border-rose-100 bg-rose-50/50 p-3 text-left transition hover:border-rose-200 hover:bg-rose-50">
+            {loading ? <Skeleton className="h-24 w-full" /> : report?.detections.length ? report.detections.slice(0, 3).map((detection) => (
+              <button key={detection.ruleId + detection.evidenceEventIds[0]} type="button" onClick={() => onShowView("investigations")} className="w-full rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-left transition hover:border-rose-500/30 hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:outline-none">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex gap-2.5">
-                    <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md bg-rose-100 text-rose-600"><ShieldAlert className="size-3.5" /></div>
-                    <div><div className="text-[11px] font-semibold text-slate-800">{detection.title}</div><div className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">{detection.description}</div></div>
+                    <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-md bg-rose-500/15 text-rose-400"><ShieldAlert className="size-3.5" /></div>
+                    <div><div className="text-[11px] font-semibold text-foreground">{detection.title}</div><div className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-foreground">{detection.description}</div></div>
                   </div>
                   <Badge variant="destructive" className="h-5 px-1.5 text-[9px] uppercase">{detection.severity}</Badge>
                 </div>
-                <div className="mt-2.5 flex items-center justify-between pl-9 text-[9px] text-slate-400"><span>{detection.ruleId} · {detection.evidenceEventIds.length} evidence events</span><span>{formatShortTime(detection.lastSeen)}</span></div>
+                <div className="mt-2.5 flex items-center justify-between pl-9 text-[9px] text-muted-foreground"><span>{detection.ruleId} · {detection.evidenceEventIds.length} evidence events</span><span>{formatShortTime(detection.lastSeen)}</span></div>
               </button>
             )) : (
-              <div className="flex min-h-32 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-5 text-center">
-                <Shield className="mb-2 size-5 text-slate-300" />
-                <p className="text-[11px] font-medium text-slate-600">No active detections</p>
-                <p className="mt-1 text-[10px] text-slate-400">Deterministic rules are checked as events arrive.</p>
+              <div className="flex min-h-32 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-5 text-center">
+                <Shield className="mb-2 size-5 text-muted-foreground/60" />
+                <p className="text-[11px] font-medium text-foreground/70">No active detections</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">Deterministic rules are checked on every investigation.</p>
               </div>
             )}
-            <button onClick={onShowInvestigations} className="flex w-full items-center justify-between border-t border-slate-100 pt-3 text-[10px] font-medium text-slate-500 hover:text-blue-700">
+            <button type="button" onClick={() => onShowView("investigations")} className="flex w-full items-center justify-between rounded-md border-t border-border pt-3 text-[10px] font-medium text-muted-foreground transition hover:text-blue-400 focus-visible:text-blue-400 focus-visible:outline-none">
               Open investigation workspace <ArrowRight className="size-3" />
             </button>
           </CardContent>
@@ -732,40 +827,106 @@ function OverviewView({
   )
 }
 
-function ChartEmpty({ loading, message }: { loading: boolean; message: string }) {
-  return <div className="grid h-[248px] place-items-center text-center text-xs text-slate-400">{loading ? "Loading data…" : message}</div>
+function OnboardingPanel({ onImport }: { onImport: () => void }) {
+  const steps = [
+    { icon: Upload, title: "Import a log file", detail: "Drop a .log or .txt file, or paste lines. Re-imports never duplicate events." },
+    { icon: ShieldAlert, title: "Review detections", detail: "Deterministic rules flag brute force and other patterns with evidence." },
+    { icon: Bot, title: "Ask the assistant", detail: "Ask questions in plain language; every answer cites its events." },
+  ]
+  return (
+    <section className="relative overflow-hidden rounded-2xl border border-border bg-card px-6 py-10 shadow-[0_1px_2px_rgba(15,23,42,.03)] sm:px-10">
+      <div className="absolute -top-24 -right-24 size-72 rounded-full bg-blue-500/10" />
+      <div className="relative max-w-2xl">
+        <div className="mb-4 grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><FileText className="size-6" /></div>
+        <h2 className="text-xl font-semibold tracking-tight text-foreground">No events yet</h2>
+        <p className="mt-1.5 text-[13px] leading-6 text-muted-foreground">Import your first logs to see activity, detections and investigations. Supported lines look like:</p>
+        <pre className="mt-3 overflow-x-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-[11px] text-foreground/70">2026-09-25T17:00:30Z WARN [security] Failed authentication attempt username=admin source=10.10.20.15</pre>
+        <Button onClick={onImport} className="mt-5 h-10 gap-2 bg-primary px-4 text-sm text-primary-foreground hover:bg-primary/90"><Upload className="size-4" />Import logs</Button>
+      </div>
+      <div className="relative mt-8 grid gap-3 sm:grid-cols-3">
+        {steps.map(({ icon: Icon, title, detail }, index) => (
+          <div key={title} className="rounded-xl border border-border bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-foreground/90"><span className="grid size-5 place-items-center rounded-full bg-card text-[10px] text-blue-400 shadow-sm">{index + 1}</span><Icon className="size-3.5 text-muted-foreground" />{title}</div>
+            <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{detail}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
 }
 
-function EventTable({ events, loading, compact = false }: { events: CanonicalEvent[]; loading: boolean; compact?: boolean }) {
-  if (loading && !events.length) return <div className="p-8 text-center text-xs text-slate-400">Loading events…</div>
-  if (!events.length) return <div className="p-10 text-center"><FileSearch className="mx-auto mb-2 size-5 text-slate-300" /><div className="text-xs font-medium text-slate-600">No events found</div><div className="mt-1 text-[10px] text-slate-400">Try a different search or import a log file.</div></div>
+function ChartEmpty({ message }: { message: string }) {
+  return <div className="grid h-[248px] place-items-center text-center text-xs text-muted-foreground">{message}</div>
+}
+
+function EventTable({
+  events,
+  loading,
+  compact = false,
+  onSelect,
+  emptyAction,
+}: {
+  events: CanonicalEvent[]
+  loading: boolean
+  compact?: boolean
+  onSelect: (event: CanonicalEvent) => void
+  emptyAction?: { label: string; onClick: () => void }
+}) {
+  if (loading && !events.length) {
+    return (
+      <div className="space-y-3 p-5">
+        {Array.from({ length: compact ? 4 : 8 }, (_, index) => (
+          <div key={index} className="flex items-center gap-3"><Skeleton className="size-7 rounded-md" /><Skeleton className="h-4 flex-1" /><Skeleton className="h-5 w-16 rounded-full" /><Skeleton className="h-4 w-24" /></div>
+        ))}
+      </div>
+    )
+  }
+  if (!events.length) {
+    return (
+      <div className="p-10 text-center">
+        <FileSearch className="mx-auto mb-2 size-5 text-muted-foreground/60" />
+        <div className="text-xs font-medium text-foreground/70">No events found</div>
+        <div className="mt-1 text-[10px] text-muted-foreground">Try a different search or import a log file.</div>
+        {emptyAction && <Button variant="outline" size="sm" onClick={emptyAction.onClick} className="mt-3 h-8 text-xs">{emptyAction.label}</Button>}
+      </div>
+    )
+  }
   return (
     <div className="overflow-x-auto">
       <Table>
         <TableHeader>
-          <TableRow className="border-slate-100 hover:bg-transparent">
-            <TableHead className="h-9 pl-5 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Event</TableHead>
-            <TableHead className="h-9 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Outcome</TableHead>
-            <TableHead className="h-9 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Identity</TableHead>
-            {!compact && <TableHead className="h-9 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Source</TableHead>}
-            <TableHead className="h-9 pr-5 text-right text-[10px] font-semibold tracking-wide text-slate-400 uppercase">Time</TableHead>
+          <TableRow className="border-border hover:bg-transparent">
+            <TableHead className="h-9 pl-5 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Event</TableHead>
+            <TableHead className="h-9 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Outcome</TableHead>
+            <TableHead className="h-9 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Identity</TableHead>
+            {!compact && <TableHead className="h-9 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Source</TableHead>}
+            <TableHead className="h-9 pr-5 text-right text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">Time</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {events.map((event) => (
-            <TableRow key={event.id} className="border-slate-100 hover:bg-slate-50/80">
-              <TableCell className="max-w-[300px] pl-5 py-3">
+            <TableRow key={event.id} onClick={() => onSelect(event)} className="group cursor-pointer border-border hover:bg-blue-500/5">
+              <TableCell className="max-w-[320px] py-3 pl-5">
                 <div className="flex items-center gap-2.5">
-                  <div className={`grid size-7 shrink-0 place-items-center rounded-md ${resultTone(event.result) === "danger" ? "bg-rose-50 text-rose-600" : "bg-blue-50 text-blue-600"}`}>
+                  <div className={`grid size-7 shrink-0 place-items-center rounded-md ${resultTone(event.result) === "danger" ? "bg-rose-500/10 text-rose-400" : resultTone(event.result) === "warning" ? "bg-amber-500/10 text-amber-400" : "bg-blue-500/10 text-blue-400"}`}>
                     {event.category.toLowerCase().includes("auth") || event.category.toLowerCase().includes("security") ? <Fingerprint className="size-3.5" /> : <Activity className="size-3.5" />}
                   </div>
-                  <div className="min-w-0"><div className="truncate text-[11px] font-medium text-slate-800">{event.category} <span className="font-normal text-slate-400">/</span> {event.action}</div><div className="truncate text-[10px] text-slate-400">{event.rawContent}</div></div>
+                  <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={(clickEvent) => { clickEvent.stopPropagation(); onSelect(event) }}
+                      className="block max-w-full truncate rounded text-left text-[11px] font-medium text-foreground group-hover:text-blue-400 focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:outline-none"
+                    >
+                      {event.category} <span className="font-normal text-muted-foreground">/</span> {event.action}
+                    </button>
+                    <div className="truncate font-mono text-[10px] text-muted-foreground">{event.rawContent}</div>
+                  </div>
                 </div>
               </TableCell>
               <TableCell><ResultBadge result={event.result} /></TableCell>
-              <TableCell><div className="flex items-center gap-1.5 text-[11px] text-slate-600"><UserRound className="size-3 text-slate-400" />{event.user ?? "—"}</div><div className="mt-0.5 text-[10px] text-slate-400">{event.sourceIp ?? event.device ?? "No network identity"}</div></TableCell>
-              {!compact && <TableCell><div className="text-[11px] text-slate-600">{event.sourceName}</div><div className="text-[10px] text-slate-400">{event.sourceType}</div></TableCell>}
-              <TableCell className="pr-5 text-right"><div className="whitespace-nowrap text-[10px] text-slate-500">{formatTimestamp(event.timestamp)}</div></TableCell>
+              <TableCell><IdentityCell event={event} /></TableCell>
+              {!compact && <TableCell><div className="max-w-[160px] truncate text-[11px] text-foreground/70" title={event.sourceName}>{event.sourceName}</div><div className="text-[10px] text-muted-foreground">{event.sourceType}</div></TableCell>}
+              <TableCell className="pr-5 text-right"><div className="text-[10px] whitespace-nowrap text-muted-foreground tabular-nums">{formatTimestamp(event.timestamp)}</div></TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -774,18 +935,60 @@ function EventTable({ events, loading, compact = false }: { events: CanonicalEve
   )
 }
 
-function InvestigationView({ report, loading }: { report: InvestigationReport | null; loading: boolean }) {
-  if (!report && loading) return <div className="grid min-h-80 place-items-center"><LoaderCircle className="size-6 animate-spin text-blue-500" /></div>
-  if (!report) return <ChartEmpty loading={false} message="Start an investigation to generate an evidence-backed report." />
+function IdentityCell({ event }: { event: CanonicalEvent }) {
+  const items = [
+    event.user && { icon: UserRound, value: event.user, mono: false },
+    event.sourceIp && { icon: Globe2, value: event.sourceIp, mono: true },
+    event.device && { icon: Monitor, value: event.device, mono: false },
+  ].filter(Boolean) as { icon: typeof UserRound; value: string; mono: boolean }[]
+  if (!items.length) return <span className="text-[11px] text-muted-foreground/60">—</span>
+  return (
+    <div className="space-y-0.5">
+      {items.slice(0, 2).map(({ icon: Icon, value, mono }) => (
+        <div key={value} className={`flex max-w-[180px] items-center gap-1.5 text-[11px] text-foreground/70 ${mono ? "font-mono" : ""}`}><Icon className="size-3 shrink-0 text-muted-foreground" /><span className="truncate">{value}</span></div>
+      ))}
+    </div>
+  )
+}
+
+function InvestigationView({
+  report,
+  loading,
+  onInvestigate,
+  onSelectEvent,
+  onFilterEntity,
+}: {
+  report: InvestigationReport | null
+  loading: boolean
+  onInvestigate: () => void
+  onSelectEvent: (event: CanonicalEvent) => void
+  onFilterEntity: (value: string) => void
+}) {
+  if (!report && loading) {
+    return <div className="space-y-4"><Skeleton className="h-28 w-full rounded-xl" /><div className="grid gap-4 xl:grid-cols-2"><Skeleton className="h-64 rounded-xl" /><Skeleton className="h-64 rounded-xl" /></div></div>
+  }
+  if (!report) {
+    return (
+      <div className="grid min-h-72 place-items-center rounded-xl border border-dashed border-border bg-card text-center">
+        <div>
+          <Sparkles className="mx-auto mb-2 size-6 text-blue-400" />
+          <p className="text-sm font-medium text-foreground/90">No investigation yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">Run one to generate an evidence-backed report.</p>
+          <Button onClick={onInvestigate} className="mt-4 h-9 gap-2 bg-primary text-xs text-primary-foreground hover:bg-primary/90"><Sparkles className="size-3.5" />Start investigation</Button>
+        </div>
+      </div>
+    )
+  }
+  const eventsById = new Map(report.events.map((event) => [event.id, event]))
 
   return (
     <div className="space-y-5">
-      <Card className="overflow-hidden rounded-xl border-blue-100 bg-gradient-to-br from-white to-blue-50/70 shadow-[0_2px_10px_rgba(37,99,235,.04)]">
+      <Card className="overflow-hidden rounded-xl border-blue-500/20 bg-gradient-to-br from-card to-blue-500/5 shadow-[0_2px_10px_rgba(37,99,235,.04)]">
         <CardContent className="flex flex-col justify-between gap-5 p-5 sm:flex-row sm:items-center sm:p-6">
           <div>
-            <div className="mb-2 flex items-center gap-2"><Badge className="bg-blue-600 text-[9px] tracking-wide text-white">COMPLETED</Badge><span className="text-[10px] text-slate-400">{formatTimestamp(report.createdAt)}</span></div>
-            <h2 className="text-lg font-semibold tracking-tight text-slate-900">Investigation report</h2>
-            <p className="mt-1 text-xs text-slate-500">{report.summary}</p>
+            <div className="mb-2 flex items-center gap-2"><Badge className="bg-primary text-[9px] tracking-wide text-primary-foreground">COMPLETED</Badge><span className="text-[10px] text-muted-foreground">{formatTimestamp(report.createdAt)}</span></div>
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">Investigation report</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{report.summary}</p>
           </div>
           <div className="flex gap-5 sm:gap-7">
             <MiniMetric label="Events reviewed" value={report.events.length} />
@@ -796,94 +999,146 @@ function InvestigationView({ report, loading }: { report: InvestigationReport | 
       </Card>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,.8fr)]">
-        <Card className="gap-0 overflow-hidden rounded-xl border-slate-200/80 py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-          <CardHeader className="border-b border-slate-100 px-5 py-4">
-            <div className="flex items-center gap-2"><ShieldAlert className="size-4 text-rose-500" /><CardTitle className="text-[13px] font-semibold">Deterministic detections</CardTitle></div>
+        <Card className="gap-0 overflow-hidden rounded-xl border-border py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+          <CardHeader className="border-b border-border px-5 py-4">
+            <div className="flex items-center gap-2"><ShieldAlert className="size-4 text-rose-400" /><CardTitle className="text-[13px] font-semibold">Deterministic detections</CardTitle></div>
             <CardDescription className="text-[11px]">Every finding includes the event IDs used as evidence.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 p-4">
             {report.detections.length ? report.detections.map((detection) => (
-              <div key={detection.ruleId + detection.evidenceEventIds[0]} className="rounded-xl border border-rose-100 bg-rose-50/40 p-4">
-                <div className="flex flex-wrap items-center gap-2"><Badge variant="destructive" className="text-[9px] uppercase">{detection.severity}</Badge><span className="font-mono text-[10px] text-slate-400">{detection.ruleId}</span><span className="ml-auto text-[10px] text-slate-400">{formatTimestamp(detection.firstSeen)} – {formatShortTime(detection.lastSeen)}</span></div>
-                <h3 className="mt-2 text-[13px] font-semibold text-slate-800">{detection.title}</h3>
-                <p className="mt-1 text-[11px] leading-5 text-slate-600">{detection.description}</p>
-                <div className="mt-3 flex flex-wrap gap-2">{detection.user && <Badge variant="outline" className="bg-white text-[10px]"><UserRound className="mr-1 size-3" />{detection.user}</Badge>}{detection.sourceIp && <Badge variant="outline" className="bg-white font-mono text-[10px]"><Globe2 className="mr-1 size-3" />{detection.sourceIp}</Badge>}<Badge variant="outline" className="bg-white text-[10px]">{detection.evidenceEventIds.length} evidence events</Badge></div>
-                <details className="mt-3 border-t border-rose-100 pt-2"><summary className="cursor-pointer text-[10px] font-medium text-rose-700">View evidence IDs</summary><div className="mt-2 space-y-1">{detection.evidenceEventIds.map((id) => <div key={id} className="font-mono text-[9px] text-slate-500">{id}</div>)}</div></details>
+              <div key={detection.ruleId + detection.evidenceEventIds[0]} className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4">
+                <div className="flex flex-wrap items-center gap-2"><Badge variant="destructive" className="text-[9px] uppercase">{detection.severity}</Badge><span className="font-mono text-[10px] text-muted-foreground">{detection.ruleId}</span><span className="ml-auto text-[10px] text-muted-foreground">{formatTimestamp(detection.firstSeen)} – {formatShortTime(detection.lastSeen)}</span></div>
+                <h3 className="mt-2 text-[13px] font-semibold text-foreground">{detection.title}</h3>
+                <p className="mt-1 text-[11px] leading-5 text-foreground/70">{detection.description}</p>
+                <div className="mt-3 flex flex-wrap gap-2">{detection.user && <Badge variant="outline" className="bg-card text-[10px]"><UserRound className="mr-1 size-3" />{detection.user}</Badge>}{detection.sourceIp && <Badge variant="outline" className="bg-card font-mono text-[10px]"><Globe2 className="mr-1 size-3" />{detection.sourceIp}</Badge>}<Badge variant="outline" className="bg-card text-[10px]">{detection.evidenceEventIds.length} evidence events</Badge></div>
+                <details className="mt-3 border-t border-rose-500/20 pt-2">
+                  <summary className="text-[10px] font-medium text-rose-400 hover:text-rose-300">View evidence events</summary>
+                  <div className="mt-2 space-y-1">
+                    {detection.evidenceEventIds.map((id) => {
+                      const evidence = eventsById.get(id)
+                      return evidence ? (
+                        <button key={id} type="button" onClick={() => onSelectEvent(evidence)} className="flex w-full items-center justify-between gap-3 rounded-md border border-rose-500/20 bg-card px-2.5 py-1.5 text-left text-[10px] transition hover:border-rose-500/30 hover:bg-rose-500/10 focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:outline-none">
+                          <span className="truncate text-foreground/90">{evidence.action}</span>
+                          <span className="shrink-0 text-muted-foreground tabular-nums">{formatTimestamp(evidence.timestamp)}</span>
+                        </button>
+                      ) : <div key={id} className="font-mono text-[9px] text-muted-foreground">{id}</div>
+                    })}
+                  </div>
+                </details>
               </div>
             )) : <EmptyPanel icon={Shield} title="No rule matched" detail="No configured deterministic rule matched the selected events." />}
           </CardContent>
         </Card>
 
         <div className="space-y-4">
-          <Card className="rounded-xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-            <CardHeader className="px-5 pt-5 pb-2"><div className="flex items-center gap-2"><Network className="size-4 text-violet-500" /><CardTitle className="text-[13px] font-semibold">Correlated entities</CardTitle></div><CardDescription className="text-[11px]">Shared identities and infrastructure in this result set.</CardDescription></CardHeader>
+          <Card className="rounded-xl border-border shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+            <CardHeader className="px-5 pt-5 pb-2"><div className="flex items-center gap-2"><Network className="size-4 text-violet-400" /><CardTitle className="text-[13px] font-semibold">Correlated entities</CardTitle></div><CardDescription className="text-[11px]">Shared identities and infrastructure in this result set.</CardDescription></CardHeader>
             <CardContent className="space-y-2 px-5 pb-5">
               {report.correlations.length ? report.correlations.slice(0, 8).map((correlation) => {
                 const Icon = correlation.entityType === "user" ? UserRound : correlation.entityType === "sourceIp" ? Globe2 : Server
-                return <div key={`${correlation.entityType}-${correlation.entityValue}`} className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5"><div className="grid size-8 place-items-center rounded-md bg-white text-slate-500 shadow-sm"><Icon className="size-3.5" /></div><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-medium text-slate-700">{correlation.entityValue}</div><div className="text-[9px] text-slate-400">Shared {correlation.entityType} · {correlation.eventIds.length} events</div></div><ChevronRight className="size-3.5 text-slate-300" /></div>
-              }) : <p className="py-5 text-center text-[11px] text-slate-400">No repeated entities among these events.</p>}
+                return <button key={`${correlation.entityType}-${correlation.entityValue}`} type="button" onClick={() => onFilterEntity(correlation.entityValue)} title={`Show events for ${correlation.entityValue}`} className="group flex w-full items-center gap-3 rounded-lg border border-border bg-muted/30 p-2.5 text-left transition hover:border-blue-500/30 hover:bg-blue-500/10 focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:outline-none"><div className="grid size-8 place-items-center rounded-md bg-card text-muted-foreground shadow-sm"><Icon className="size-3.5" /></div><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-medium text-foreground/90">{correlation.entityValue}</div><div className="text-[9px] text-muted-foreground">Shared {correlation.entityType} · {correlation.eventIds.length} events</div></div><ChevronRight className="size-3.5 text-muted-foreground/60 transition group-hover:translate-x-0.5 group-hover:text-blue-400" /></button>
+              }) : <p className="py-5 text-center text-[11px] text-muted-foreground">No repeated entities among these events.</p>}
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-            <CardHeader className="px-5 pt-5 pb-2"><div className="flex items-center gap-2"><Sparkles className="size-4 text-amber-500" /><CardTitle className="text-[13px] font-semibold">Assessment</CardTitle></div><CardDescription className="text-[11px]">Facts and hypotheses are kept separate.</CardDescription></CardHeader>
+          <Card className="rounded-xl border-border shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+            <CardHeader className="px-5 pt-5 pb-2"><div className="flex items-center gap-2"><Sparkles className="size-4 text-amber-400" /><CardTitle className="text-[13px] font-semibold">Assessment</CardTitle></div><CardDescription className="text-[11px]">Facts and hypotheses are kept separate.</CardDescription></CardHeader>
             <CardContent className="space-y-4 px-5 pb-5">
-              <div><div className="mb-2 text-[9px] font-semibold tracking-wider text-emerald-700 uppercase">Observed facts</div>{report.facts.length ? report.facts.map((fact, index) => <div key={index} className="mb-2 rounded-md border-l-2 border-emerald-400 bg-emerald-50/50 px-3 py-2 text-[10px] leading-4 text-slate-600">{fact.statement}<div className="mt-1 text-[9px] text-slate-400">Evidence: {fact.evidenceEventIds.length} event ID(s)</div></div>) : <p className="text-[10px] text-slate-400">No detection facts for this query.</p>}</div>
-              <div><div className="mb-2 text-[9px] font-semibold tracking-wider text-amber-700 uppercase">Hypotheses to verify</div>{report.hypotheses.length ? report.hypotheses.map((item, index) => <div key={index} className="rounded-md border-l-2 border-amber-400 bg-amber-50/60 px-3 py-2 text-[10px] leading-4 text-slate-600">{item.statement}</div>) : <p className="text-[10px] text-slate-400">No hypotheses generated.</p>}</div>
-              {report.recommendations.length > 0 && <div><div className="mb-2 text-[9px] font-semibold tracking-wider text-blue-700 uppercase">Recommended next steps</div><ul className="space-y-1.5">{report.recommendations.map((item, index) => <li key={index} className="flex gap-2 text-[10px] leading-4 text-slate-600"><ArrowRight className="mt-0.5 size-3 shrink-0 text-blue-500" />{item}</li>)}</ul></div>}
+              <div><div className="mb-2 text-[9px] font-semibold tracking-wider text-emerald-400 uppercase">Observed facts</div>{report.facts.length ? report.facts.map((fact, index) => <div key={index} className="mb-2 rounded-md border-l-2 border-emerald-400 bg-emerald-500/10 px-3 py-2 text-[10px] leading-4 text-foreground/70">{fact.statement}<div className="mt-1 text-[9px] text-muted-foreground">Evidence: {fact.evidenceEventIds.length} event ID(s)</div></div>) : <p className="text-[10px] text-muted-foreground">No detection facts for this query.</p>}</div>
+              <div><div className="mb-2 text-[9px] font-semibold tracking-wider text-amber-400 uppercase">Hypotheses to verify</div>{report.hypotheses.length ? report.hypotheses.map((item, index) => <div key={index} className="rounded-md border-l-2 border-amber-400 bg-amber-500/10 px-3 py-2 text-[10px] leading-4 text-foreground/70">{item.statement}</div>) : <p className="text-[10px] text-muted-foreground">No hypotheses generated.</p>}</div>
+              {report.recommendations.length > 0 && <div><div className="mb-2 text-[9px] font-semibold tracking-wider text-blue-400 uppercase">Recommended next steps</div><ul className="space-y-1.5">{report.recommendations.map((item, index) => <li key={index} className="flex gap-2 text-[10px] leading-4 text-foreground/70"><ArrowRight className="mt-0.5 size-3 shrink-0 text-blue-400" />{item}</li>)}</ul></div>}
             </CardContent>
           </Card>
         </div>
       </section>
 
-      <Card className="rounded-xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+      <Card className="rounded-xl border-border shadow-[0_1px_2px_rgba(15,23,42,.03)]">
         <CardHeader className="px-5 pt-5 pb-3"><div className="flex items-center gap-2"><WorkflowIcon /><CardTitle className="text-[13px] font-semibold">Orchestrator trace</CardTitle></div><CardDescription className="text-[11px]">Fixed sequence · deterministic tools · no LLM call</CardDescription></CardHeader>
         <CardContent className="grid gap-3 px-5 pb-5 sm:grid-cols-2 xl:grid-cols-4">
           {report.agentTrace.map((step, index) => (
-            <div key={step.agent} className="relative flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/70 p-3">
-              {index < report.agentTrace.length - 1 && <div className="absolute top-1/2 -right-3 z-10 hidden h-px w-3 bg-slate-300 xl:block" />}
-              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-white text-blue-600 shadow-sm">{index === 0 ? <FileSearch className="size-4" /> : index === 1 ? <ShieldAlert className="size-4" /> : index === 2 ? <Network className="size-4" /> : <FileClock className="size-4" />}</div>
-              <div className="min-w-0"><div className="truncate text-[10px] font-semibold text-slate-700">{step.agent}</div><div className="mt-0.5 flex items-center gap-1.5 text-[9px] text-slate-400"><Check className="size-3 text-emerald-500" />{step.outcome} · {step.evidenceCount} result(s)</div></div>
+            <div key={step.agent} className="relative flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
+              {index < report.agentTrace.length - 1 && <div className="absolute top-1/2 -right-3 z-10 hidden h-px w-3 bg-muted-foreground/40 xl:block" />}
+              <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-card text-blue-400 shadow-sm">{index === 0 ? <FileSearch className="size-4" /> : index === 1 ? <ShieldAlert className="size-4" /> : index === 2 ? <Network className="size-4" /> : <FileClock className="size-4" />}</div>
+              <div className="min-w-0"><div className="truncate text-[10px] font-semibold text-foreground/90">{step.agent}</div><div className="mt-0.5 flex items-center gap-1.5 text-[9px] text-muted-foreground"><Check className="size-3 text-emerald-400" />{step.outcome} · {step.evidenceCount} result(s)</div></div>
             </div>
           ))}
         </CardContent>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 px-5 py-3 text-[9px] text-slate-400"><span>Investigation ID: <code className="font-mono text-slate-500">{report.id}</code></span><span>LLM used: <strong className="font-medium text-slate-600">{report.llmUsed ? "yes" : "no"}</strong></span><span>Events analyzed: <strong className="font-medium text-slate-600">{report.events.length}</strong></span></div>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border px-5 py-3 text-[9px] text-muted-foreground"><span>Investigation ID: <code className="font-mono text-muted-foreground">{report.id}</code></span><span>LLM used: <strong className="font-medium text-foreground/70">{report.llmUsed ? "yes" : "no"}</strong></span><span>Events analyzed: <strong className="font-medium text-foreground/70">{report.events.length}</strong></span></div>
       </Card>
     </div>
   )
 }
 
 function WorkflowIcon() {
-  return <Layers3 className="size-4 text-blue-600" />
+  return <Layers3 className="size-4 text-blue-400" />
 }
 
 function MiniMetric({ label, value, highlight = false }: { label: string; value: number; highlight?: boolean }) {
-  return <div className="min-w-[70px]"><div className="text-[9px] font-medium tracking-wide text-slate-400 uppercase">{label}</div><div className={`mt-1 text-[20px] font-semibold tracking-tight ${highlight ? "text-rose-600" : "text-slate-800"}`}>{value}</div></div>
+  return <div className="min-w-[70px]"><div className="text-[9px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div><div className={`mt-1 text-[20px] font-semibold tracking-tight ${highlight ? "text-rose-400" : "text-foreground"}`}>{value}</div></div>
 }
 
 function EmptyPanel({ icon: Icon, title, detail }: { icon: typeof Shield; title: string; detail: string }) {
-  return <div className="grid min-h-32 place-items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-5 text-center"><div><Icon className="mx-auto mb-2 size-5 text-slate-300" /><p className="text-[11px] font-medium text-slate-600">{title}</p><p className="mt-1 text-[10px] text-slate-400">{detail}</p></div></div>
+  return <div className="grid min-h-32 place-items-center rounded-lg border border-dashed border-border bg-muted/30 px-5 text-center"><div><Icon className="mx-auto mb-2 size-5 text-muted-foreground/60" /><p className="text-[11px] font-medium text-foreground/70">{title}</p><p className="mt-1 text-[10px] text-muted-foreground">{detail}</p></div></div>
 }
 
-function EventsView({ events, loading, query }: { events: CanonicalEvent[]; loading: boolean; query: string }) {
+function EventsView({
+  events,
+  loading,
+  query,
+  resultFilter,
+  resultCounts,
+  onResultFilterChange,
+  onClearFilters,
+  onSelectEvent,
+}: {
+  events: CanonicalEvent[]
+  loading: boolean
+  query: string
+  resultFilter: ResultFilter
+  resultCounts: Record<ResultFilter, number>
+  onResultFilterChange: (filter: ResultFilter) => void
+  onClearFilters: () => void
+  onSelectEvent: (event: CanonicalEvent) => void
+}) {
   const [page, setPage] = useState(1)
   const pageSize = 25
   const pageCount = Math.max(1, Math.ceil(events.length / pageSize))
   const currentPage = Math.min(page, pageCount)
   const pageEvents = events.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  const filtered = Boolean(query) || resultFilter !== "all"
+
+  const changeFilter = (filter: ResultFilter) => {
+    setPage(1)
+    onResultFilterChange(filter)
+  }
 
   return (
-    <Card className="gap-0 overflow-hidden rounded-xl border-slate-200/80 py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
-      <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-slate-100 px-5 py-4">
-        <div><CardTitle className="text-[13px] font-semibold">Normalized event stream</CardTitle><CardDescription className="mt-1 text-[11px]">{events.length.toLocaleString("en-US")} events{query ? ` matching “${query}”` : " across all sources"}</CardDescription></div>
-        <Badge variant="outline" className="gap-1.5 bg-slate-50 text-[10px] text-slate-600"><span className="size-1.5 rounded-full bg-slate-400" /> Stored events</Badge>
+    <Card className="gap-0 overflow-hidden rounded-xl border-border py-0 shadow-[0_1px_2px_rgba(15,23,42,.03)]">
+      <CardHeader className="border-b border-border px-5 py-4">
+        <CardTitle className="text-[13px] font-semibold">Normalized event stream</CardTitle>
+        <CardDescription className="text-[11px]">{events.length.toLocaleString("en-US")} events{query ? ` matching “${query}”` : " across all sources"} · click a row for details</CardDescription>
+        {filtered && <CardAction><Button variant="ghost" size="sm" onClick={() => { setPage(1); onClearFilters() }} className="h-8 gap-1 text-[11px] text-foreground/70"><X className="size-3" />Clear filters</Button></CardAction>}
       </CardHeader>
-      <EventTable events={pageEvents} loading={loading} />
-      {!loading && events.length > pageSize && <div className="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <span className="text-[11px] text-slate-500">Showing {((currentPage - 1) * pageSize + 1).toLocaleString("en-US")}–{Math.min(currentPage * pageSize, events.length).toLocaleString("en-US")} of {events.length.toLocaleString("en-US")}</span>
+      <div role="group" aria-label="Filter by outcome" className="flex gap-1.5 overflow-x-auto border-b border-border px-5 py-2.5">
+        {resultFilters.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={resultFilter === id}
+            onClick={() => changeFilter(id)}
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:outline-none ${resultFilter === id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-transparent text-muted-foreground hover:border-foreground/30 hover:text-foreground"}`}
+          >
+            {label}
+            <span className={`rounded-full px-1.5 text-[10px] tabular-nums ${resultFilter === id ? "bg-white/20 text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{resultCounts[id]}</span>
+          </button>
+        ))}
+      </div>
+      <EventTable events={pageEvents} loading={loading} onSelect={onSelectEvent} emptyAction={filtered ? { label: "Clear filters", onClick: onClearFilters } : undefined} />
+      {!loading && events.length > pageSize && <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <span className="text-[11px] text-muted-foreground">Showing {((currentPage - 1) * pageSize + 1).toLocaleString("en-US")}–{Math.min(currentPage * pageSize, events.length).toLocaleString("en-US")} of {events.length.toLocaleString("en-US")}</span>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="h-8 gap-1 text-xs"><ChevronLeft className="size-3.5" />Previous</Button>
-          <span className="min-w-16 text-center text-[11px] tabular-nums text-slate-500">Page {currentPage} of {pageCount}</span>
+          <span className="min-w-16 text-center text-[11px] text-muted-foreground tabular-nums">Page {currentPage} of {pageCount}</span>
           <Button variant="outline" size="sm" onClick={() => setPage(Math.min(pageCount, currentPage + 1))} disabled={currentPage === pageCount} className="h-8 gap-1 text-xs">Next<ChevronRight className="size-3.5" /></Button>
         </div>
       </div>}
@@ -895,17 +1150,32 @@ function SourcesView({
   sources,
   loading,
   onDelete,
+  onShowSource,
+  onImport,
 }: {
   sources: { name: string; events: number; types: Set<string>; latest: string }[]
   loading: boolean
   onDelete: (source: string | null) => Promise<void>
+  onShowSource: (name: string) => void
+  onImport: () => void
 }) {
   // undefined: dialog closed, null: delete everything, string: delete one source.
   const [target, setTarget] = useState<string | null | undefined>(undefined)
   const [deleting, setDeleting] = useState(false)
 
-  if (loading) return <ChartEmpty loading message="Loading sources…" />
-  if (!sources.length) return <EmptyPanel icon={Database} title="No log sources yet" detail="Import a log file to register its source." />
+  if (loading) return <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 3 }, (_, index) => <Skeleton key={index} className="h-48 rounded-xl" />)}</div>
+  if (!sources.length) {
+    return (
+      <div className="grid min-h-60 place-items-center rounded-xl border border-dashed border-border bg-card text-center">
+        <div>
+          <Database className="mx-auto mb-2 size-6 text-muted-foreground/60" />
+          <p className="text-sm font-medium text-foreground/90">No log sources yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">Import a log file to register its source.</p>
+          <Button onClick={onImport} className="mt-4 h-9 gap-2 bg-primary text-xs text-primary-foreground hover:bg-primary/90"><Upload className="size-3.5" />Import logs</Button>
+        </div>
+      </div>
+    )
+  }
 
   const total = sources.reduce((sum, source) => sum + source.events, 0)
   const pending = target === undefined ? 0 : target === null ? total : sources.find((source) => source.name === target)?.events ?? 0
@@ -923,15 +1193,16 @@ function SourcesView({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={() => setTarget(null)} className="h-9 gap-2 border-rose-200 bg-white text-xs text-rose-700 shadow-sm hover:bg-rose-50 hover:text-rose-800">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[12px] text-muted-foreground">{sources.length} source(s) · {total.toLocaleString("en-US")} events</p>
+        <Button variant="outline" onClick={() => setTarget(null)} className="h-9 gap-2 border-rose-500/30 bg-card text-xs text-rose-400 shadow-sm hover:bg-rose-500/10 hover:text-rose-300">
           <Trash2 className="size-3.5" /> Delete all data
         </Button>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sources.map((source) => <Card key={source.name} className="rounded-xl border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.03)]"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="grid size-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Server className="size-5" /></div><div className="flex items-center gap-1.5"><Badge variant="outline" className="border-blue-200 bg-blue-50 text-[9px] text-blue-700">IMPORTED</Badge><button type="button" aria-label={`Delete events from ${source.name}`} title="Delete this source's events" onClick={() => setTarget(source.name)} className="grid size-7 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"><Trash2 className="size-3.5" /></button></div></div><h3 className="mt-4 truncate text-sm font-semibold text-slate-800" title={source.name}>{source.name}</h3><p className="mt-1 text-[10px] text-slate-400">{[...source.types].join(", ")} connector</p><Separator className="my-4" /><div className="flex justify-between"><div><div className="text-[9px] tracking-wide text-slate-400 uppercase">Events</div><div className="mt-1 text-lg font-semibold text-slate-800">{source.events.toLocaleString("en-US")}</div></div><div className="text-right"><div className="text-[9px] tracking-wide text-slate-400 uppercase">Last event</div><div className="mt-2 text-[10px] text-slate-600">{formatTimestamp(source.latest)}</div></div></div></CardContent></Card>)}</div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sources.map((source) => <Card key={source.name} className="rounded-xl border-border shadow-[0_1px_2px_rgba(15,23,42,.03)]"><CardContent className="p-5"><div className="flex items-start justify-between"><div className="grid size-10 place-items-center rounded-xl bg-blue-500/10 text-blue-400"><Server className="size-5" /></div><div className="flex items-center gap-1.5"><Badge variant="outline" className="border-blue-500/30 bg-blue-500/10 text-[9px] text-blue-400">IMPORTED</Badge><button type="button" aria-label={`Delete events from ${source.name}`} title="Delete this source's events" onClick={() => setTarget(source.name)} className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-rose-500/10 hover:text-rose-400 focus-visible:ring-2 focus-visible:ring-rose-400/40 focus-visible:outline-none"><Trash2 className="size-3.5" /></button></div></div><h3 className="mt-4 truncate text-sm font-semibold text-foreground" title={source.name}>{source.name}</h3><p className="mt-1 text-[10px] text-muted-foreground">{[...source.types].join(", ")} connector</p><Separator className="my-4" /><div className="flex justify-between"><div><div className="text-[9px] tracking-wide text-muted-foreground uppercase">Events</div><div className="mt-1 text-lg font-semibold text-foreground">{source.events.toLocaleString("en-US")}</div></div><div className="text-right"><div className="text-[9px] tracking-wide text-muted-foreground uppercase">Last event</div><div className="mt-2 text-[10px] text-foreground/70">{formatTimestamp(source.latest)}</div></div></div><Button variant="outline" size="sm" onClick={() => onShowSource(source.name)} className="mt-4 h-8 w-full gap-1.5 text-xs">View events <ArrowRight className="size-3" /></Button></CardContent></Card>)}</div>
 
       <Dialog open={target !== undefined} onOpenChange={(open) => { if (!open && !deleting) setTarget(undefined) }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{target === null ? "Delete all data?" : "Delete this source?"}</DialogTitle>
             <DialogDescription>

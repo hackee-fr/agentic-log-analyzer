@@ -5,7 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -39,7 +40,7 @@
 }
 
 :root {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   color-scheme: light;
   --background: oklch(0.985 0.004 255);
   --foreground: oklch(0.21 0.025 260);
@@ -70,14 +71,46 @@
   --sidebar-ring: oklch(0.65 0.14 257);
 }
 
+/* Very dark blue palette: near-black navy canvas, slate-blue surfaces, blue accents and primary actions. */
+.dark {
+  color-scheme: dark;
+  --background: #02050c;
+  --foreground: #e6ecf7;
+  --card: #060b17;
+  --card-foreground: #e6ecf7;
+  --popover: #08101f;
+  --popover-foreground: #e6ecf7;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #0e1629;
+  --secondary-foreground: #e6ecf7;
+  --muted: #0c1426;
+  --muted-foreground: #8b9ab8;
+  --accent: #0f1930;
+  --accent-foreground: #e6ecf7;
+  --destructive: #f05252;
+  --border: #131c33;
+  --input: #1a2542;
+  --ring: #60a5fa;
+  --sidebar: #01040a;
+  --sidebar-foreground: #e6ecf7;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #0c1426;
+  --sidebar-accent-foreground: #e6ecf7;
+  --sidebar-border: #131c33;
+  --sidebar-ring: #60a5fa;
+}
+
 * {
   border-color: var(--border);
 }
 
 html {
   min-width: 360px;
-  background: #f5f7fb;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -88,16 +121,60 @@ body {
   min-width: 360px;
   min-height: 100vh;
   margin: 0;
-  background: #f5f7fb;
+  background: var(--background);
 }
 
-button,
-input,
-textarea {
-  font: inherit;
+/* Layered so Tailwind text utilities (text-xs, text-[11px]...) still apply to controls. */
+@layer base {
+  button,
+  input,
+  textarea {
+    font: inherit;
+  }
 }
 
 ::selection {
   color: #fff;
   background: #2563eb;
+}
+
+/* Thin, discreet scrollbars on the dark canvas. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1a2542 transparent;
+}
+
+/* Every clickable control shows a pointer; shadcn/ui components stay untouched. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="menuitem"],
+  [role="option"],
+  input[type="button"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  select:not(:disabled),
+  summary,
+  label[for],
+  a[href] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
 }

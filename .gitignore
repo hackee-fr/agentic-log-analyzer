@@ -20,3 +20,6 @@ Thumbs.db
 docker-data/
 data/
 *.generated.md
+
+# Browser automation screenshots and snapshots
+.playwright-mcp/
