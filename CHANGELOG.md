@@ -6,6 +6,8 @@ Desktop installers and Docker images are published from `v*` tags (see the READM
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-25
+
 ### Added
 
 - **Desktop auto-update** (Velopack): installed apps check GitHub Releases at startup and every six hours, download new versions in the background, and install them on "Restart now" or when the app closes. Delta packages keep updates small. Settings shows the installed version and has a manual check.
@@ -80,7 +82,8 @@ Desktop installers and Docker images are published from `v*` tags (see the READM
 - PostgreSQL development service in Docker Compose.
 - Requirements document, development contract (`AGENTS.md`), and agent and skill contracts.
 
-[Unreleased]: https://github.com/hackee-fr/agentic-log-analyzer/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/hackee-fr/agentic-log-analyzer/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/cd61555...v0.3.0
 [0.2.0]: https://github.com/hackee-fr/agentic-log-analyzer/compare/248368c...cd61555
 [0.1.0]: https://github.com/hackee-fr/agentic-log-analyzer/commit/248368c
