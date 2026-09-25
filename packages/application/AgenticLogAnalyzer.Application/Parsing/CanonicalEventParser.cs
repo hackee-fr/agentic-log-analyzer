@@ -1,9 +1,18 @@
+using System.Globalization;
+using AgenticLogAnalyzer.Application.Abstractions;
 using AgenticLogAnalyzer.Domain.Logs;
 
 namespace AgenticLogAnalyzer.Application.Parsing;
 
-public sealed class CanonicalEventParser
+public sealed class CanonicalEventParser : ILogParser
 {
+    public bool CanParse(RawLog rawLog)
+    {
+        return rawLog.Content.Split(
+            '|',
+            StringSplitOptions.TrimEntries).Length == 7;
+    }
+
     public CanonicalEvent Parse(RawLog rawLog)
     {
         var parts = rawLog.Content.Split(
@@ -16,7 +25,11 @@ public sealed class CanonicalEventParser
                 "Expected 7 pipe-delimited fields: timestamp|category|action|result|user|device|sourceIp.");
         }
 
-        if (!DateTimeOffset.TryParse(parts[0], out var timestamp))
+        if (!DateTimeOffset.TryParse(
+                parts[0],
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var timestamp))
         {
             throw new FormatException($"Invalid timestamp: '{parts[0]}'.");
         }
